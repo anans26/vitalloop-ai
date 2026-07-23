@@ -1,0 +1,13 @@
+stages:
+  build_dataset:
+    cmd: python -m ml.data.build_dataset
+    deps:
+      - datasets/raw/diabetic_data.csv
+      - ml/data/schema.py
+      - ml/data/clean.py
+      - ml/data/split.py
+      - ml/data/build_dataset.py
+    outs:
+      - datasets/processed/train.csv
+      - datasets/processed/eval_frozen.csv
+      - datasets/processed/future_stream.csv

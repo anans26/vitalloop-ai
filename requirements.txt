@@ -1,0 +1,15 @@
+# VitalLoop 2.0 — Week 1-2 dependencies only.
+# Later weeks add: lightgbm, shap, mlflow, fastapi, uvicorn, pyjwt, evidently,
+# apscheduler, streamlit, structlog, fpdf2 — introduced when their week starts.
+
+pandas>=2.2
+numpy>=1.26
+scikit-learn>=1.5
+jupyter>=1.0
+ipykernel>=6.29
+pandera>=0.20
+dvc>=3.55
+ucimlrepo>=0.0.7
+pytest>=8.3
+ruff>=0.6
+pre-commit>=3.8

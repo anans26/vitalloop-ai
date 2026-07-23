@@ -1,0 +1,122 @@
+# ==============================================================================
+# Secrets -- never commit these
+# ==============================================================================
+.env
+.env.*
+.env.local
+.env.production
+.env.development
+.env.test
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.secret
+*.token
+
+# API keys / cloud credentials (Gemini, Google Cloud, Firebase, OAuth, service accounts)
+*serviceaccount*.json
+*service-account*.json
+*credentials*.json
+client_secret*.json
+gcloud-credentials.json
+firebase-credentials.json
+*.apikey
+
+# ==============================================================================
+# Claude / Anthropic -- must never be committed to this repo
+# ==============================================================================
+.claude/
+claude.json
+claude*.json
+claude*.yaml
+claude*.yml
+.anthropic/
+anthropic*.json
+anthropic*.yaml
+
+# ==============================================================================
+# Python
+# ==============================================================================
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+*.egg-info/
+
+# ==============================================================================
+# Node.js (used only by project_docs/build_pdf.mjs -- not the application)
+# ==============================================================================
+node_modules/
+.next/
+dist/
+build/
+coverage/
+.npm/
+.pnpm-store/
+.yarn/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# ==============================================================================
+# IDE
+# ==============================================================================
+.vscode/
+.idea/
+*.iml
+
+# ==============================================================================
+# Operating System
+# ==============================================================================
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ==============================================================================
+# Logs
+# ==============================================================================
+*.log
+logs/
+
+# ==============================================================================
+# Jupyter
+# ==============================================================================
+.ipynb_checkpoints/
+
+# ==============================================================================
+# Docker (volumes / local container artifacts -- docker-compose.yml itself IS tracked)
+# ==============================================================================
+docker/pgdata/
+
+# ==============================================================================
+# Temporary files
+# ==============================================================================
+tmp/
+temp/
+cache/
+.cache/
+
+# ==============================================================================
+# Data (tracked via DVC, not git) -- .dvc pointer files stay in git
+# ==============================================================================
+datasets/raw/*
+datasets/processed/*
+!datasets/raw/.gitkeep
+!datasets/processed/.gitkeep
+!datasets/raw/*.dvc
+!datasets/processed/*.dvc
+.dvc/cache
+.dvc/tmp
+
+# DVC local remote (this machine's cache mirror, not source-controlled)
+dvc-storage/
