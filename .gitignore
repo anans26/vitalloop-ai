@@ -125,5 +125,10 @@ models/
 reports/*
 !reports/metrics.json
 
+# Week 4 MLflow local store -- tracking DB, proxied artifacts, and the
+# append-only alias audit log. Runs are reproducible from code + DVC hashes, so
+# the store itself is machine-local and never source-controlled.
+mlflow/
+
 # DVC local remote (this machine's cache mirror, not source-controlled)
 dvc-storage/

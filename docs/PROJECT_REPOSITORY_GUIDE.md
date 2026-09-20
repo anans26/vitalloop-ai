@@ -80,6 +80,7 @@ MLOPS PROJECT/
 │   └── PROJECT_REPOSITORY_GUIDE.md
 ├── node_modules/                   # Pre-existing; only `marked`, used by build_pdf.mjs
 ├── models/                          # Fitted model bundle + run metadata (DVC outputs, gitignored)
+├── mlflow/                          # Local MLflow store + alias audit log (gitignored)
 ├── reports/                         # Metrics, calibration table, SHAP tables, figures (DVC outputs;
 │                                   #   reports/metrics.json is a git-tracked DVC metric)
 ├── dvc.yaml                        # DVC pipeline: build_dataset → train_model → evaluate_model → explain_model
@@ -181,9 +182,23 @@ MLOPS PROJECT/
 - **Design note:** explains the **uncalibrated** base model. TreeExplainer needs the tree ensemble itself, and isotonic calibration is a monotonic remap — it changes the probability, not the ranking or the relative feature contributions.
 - **Status:** implemented; 249 transformed features.
 
+### `ml/tracking.py`
+- **Purpose:** MLflow experiment tracking and lineage around the Week 3 workflow.
+- **Contains:** `resolve_tracking_uri`, `verify_tracking_reachable`, `git_lineage`, `dvc_lineage`, `build_params`, `build_metrics`, `redacted_local_explanation`, `log_run`, and a `main()` that runs train → evaluate → explain → log as one command.
+- **Design note:** it calls the existing Week 3 entry points rather than re-implementing them, so tracked numbers cannot drift from what the pipeline actually produces. An unreachable configured server raises instead of silently falling back to a local store.
+- **Data handling:** logs aggregates, configuration, and figures only. Patient CSVs are never logged (MLflow records their DVC hashes instead), and the local SHAP example is redacted of per-encounter `feature_value` fields before logging.
+- **Status:** implemented; a tracked run records 42 params and 69 metrics.
+
+### `ml/registry.py`
+- **Purpose:** the only sanctioned way to register a model version or move an alias, per `project_docs/ARCHITECTURE.md` §3.5.
+- **Contains:** `register_model`, `current_alias_version`, `set_alias`, `ensure_initial_champion`, `write_audit_row`, `read_audit_rows`.
+- **Design note:** `ensure_initial_champion` sets `champion` only when nothing holds it. Week 4 registers; it does not promote — replacing a champion is what the Week 8 gate and Week 9 approval flow exist to authorise.
+- **Audit trail:** every alias move appends a row (alias, from/to version, run id, git commit, actor, reason, timestamp) to `mlflow/registry_audit.jsonl`. JSONL because the Postgres table that will hold these rows is Week 5; the record shape is chosen to migrate into one.
+- **Status:** implemented; `vitalloop-readmission` v1 registered with `champion`.
+
 ### `docker/docker-compose.yml`
 - **Purpose:** local PostgreSQL 16 instance.
-- **Contains:** one service (`postgres`), credentials sourced from `docker/.env` (gitignored) via `${VAR}` substitution — `docker/.env.example` is the committed template — a named volume for persistence.
+- **Contains:** two services. `postgres` takes credentials from `docker/.env` (gitignored) via `${VAR}` substitution, with `docker/.env.example` as the committed template. `mlflow` (Week 4) runs the tracking server on :5000 with a SQLite backend and `--serve-artifacts`; it needs no credentials, so `.env.example` is unchanged. Each service has its own named volume.
 - **Status:** implemented and running; **empty** — no application connects to it yet.
 
 ### `dvc.yaml` / `dvc.lock`
@@ -191,7 +206,7 @@ MLOPS PROJECT/
 - **Status:** implemented; both files exist and are consistent with the current data.
 
 ### `tests/data/*.py`
-- **Purpose:** 70 tests across schema, clean, features, split, the built processed datasets, and the Week 3 model/calibration/SHAP contracts.
+- **Purpose:** 93 tests across schema, clean, features, split, the built processed datasets, the Week 3 model/calibration/SHAP contracts, and the Week 4 tracking/registry contracts. The tracking tests use a temporary SQLite store, so no MLflow server is needed.
 - **The one worth calling out specifically:** `tests/data/test_split.py::test_split_produces_no_patient_overlap_across_any_pair_of_splits` — this is the exact unit test `project_docs/RISK_ANALYSIS.md` calls for ("killed by tests, not vigilance").
 - **Status:** all 34 pass. `tests/data/test_processed_datasets.py` asserts the data contract against the real 69,990-row processed output directly (no raw target column, zero patient overlap, 70/15/15, no leakage dispositions); it skips automatically when the datasets have not been built, so CI stays green without the data.
 
@@ -260,7 +275,7 @@ The five-plane target (data → model → serving → self-healing loop → obse
 
 ---
 
-## 6. Development Timeline (Weeks 1–3)
+## 6. Development Timeline (Weeks 1–4)
 
 ### Week 1 — Setup, EDA, Baseline
 
@@ -287,7 +302,7 @@ The five-plane target (data → model → serving → self-healing loop → obse
 - **Frontend work:** none (Week 10).
 - **Backend work:** the data pipeline itself is the "backend" work at this stage.
 - **AI/ML work:** none new (feature pipeline is ML-adjacent infrastructure, not a model).
-- **Testing:** 70 pytest tests, all passing; `ruff check .` and `ruff format --check .` clean.
+- **Testing:** 93 pytest tests, all passing; `ruff check .` and `ruff format --check .` clean.
 - **Deliverables (per roadmap, both met):** `dvc repro` rebuilds the hashed dataset deterministically; documented, tested split strategy.
 
 ---
@@ -306,6 +321,19 @@ The five-plane target (data → model → serving → self-healing loop → obse
 - **Known gap:** ROC-AUC sits below the published 0.64–0.69 range, which those papers obtain on random splits without patient-level deduplication. See `RUNNING_THE_PROJECT.md` §13 for the like-for-like comparison and the open question this raises.
 
 
+### Week 4 — MLflow Tracking + Registry
+
+- **Objectives:** every run tracked; registry with aliases operational.
+- **Completed work:** MLflow service added to Compose (UI on :5000); tracked runs recording params, metrics, artifacts, git commit and DVC hashes; model logging for both the calibrated and base models; registration of `vitalloop-readmission` v1 with the `champion` alias; an append-only alias audit trail.
+- **Files created:** `ml/tracking.py`, `ml/registry.py`, `tests/test_tracking.py`, `tests/test_registry.py`.
+- **Modules completed:** experiment tracking, model registry.
+- **APIs completed:** none (Week 5).
+- **Database work:** none — MLflow uses its own SQLite backend; the Postgres service is untouched and still has no application schema.
+- **AI/ML work:** none. Week 4 tracks the Week 3 model unchanged; metrics are identical (calibrated ROC-AUC 0.6024).
+- **Testing:** 23 new tests (93 total), all passing without a running MLflow server.
+- **Deliverables (per roadmap):** registered champion v1, alias moves audited, MLflow UI reachable at :5000 — all present.
+
+
 ## 7. Current Implementation Status
 
 | Area | Status | Approx. completion vs. full 12-week scope |
@@ -317,6 +345,7 @@ The five-plane target (data → model → serving → self-healing loop → obse
 | Train/eval/future split | ✅ Completed | 100% of its own scope |
 | Data versioning (DVC) | ✅ Completed | 100% of Week 2 scope; no remote sharing/team setup (not required yet) |
 | Model training (LightGBM, calibration, SHAP) | ✅ Completed | Calibrated model in `models/`, metrics in `reports/metrics.json`, SHAP tables and figures in `reports/` |
+| MLflow tracking + registry | ✅ Completed | Tracked runs with git/DVC lineage; `vitalloop-readmission` v1 registered with the `champion` alias |
 | Experiment tracking (MLflow) | ⬜ Not started | 0% — Week 4 |
 | API serving (FastAPI, JWT, audit rows) | ⬜ Not started | 0% — Week 5 |
 | Drift monitoring (Evidently) | ⬜ Not started | 0% — Week 6 |
@@ -413,9 +442,8 @@ There is currently no request flow, no frontend-backend communication, and no AI
 
 ## 11. Pending Features — NOT IMPLEMENTED
 
-Everything below is described only because it is planned in `project_docs/IMPLEMENTATION_ROADMAP.md`. **None of it exists in the repository today.** (Week 3 — the LightGBM model, isotonic calibration, SHAP explainability, and subgroup metrics — has since been implemented and is no longer listed.) It is listed here purely so a new developer knows what is coming and doesn't go looking for it.
+Everything below is described only because it is planned in `project_docs/IMPLEMENTATION_ROADMAP.md`. **None of it exists in the repository today.** (Weeks 3 and 4 — the LightGBM model, isotonic calibration, SHAP explainability, subgroup metrics, MLflow tracking and the model registry — have since been implemented and are no longer listed.) It is listed here purely so a new developer knows what is coming and doesn't go looking for it.
 
-- **Week 4 — NOT IMPLEMENTED:** MLflow tracking, model registry, champion/challenger/shadow aliases.
 - **Week 5 — NOT IMPLEMENTED:** FastAPI service, JWT authentication, per-request audit rows, any database schema/tables/migrations.
 - **Week 6 — NOT IMPLEMENTED:** Evidently drift monitoring, APScheduler worker, the seeded drift scenarios S1–S5.
 - **Week 7 — NOT IMPLEMENTED:** the Decision Engine, the Decision Card schema/persistence, the confidence formula.
@@ -434,6 +462,7 @@ If any other document (including AI-generated summaries) describes any of the ab
 - **Where to add new data-pipeline logic:** `ml/data/` — follow the existing pattern of one focused module per concern (schema, clean, features, split), composed by `build_dataset.py`.
 - **Where a future API will live:** `api/` (not yet created — create it when Week 5 starts, per `project_docs/ARCHITECTURE.md` §10).
 - **Where model code lives:** `ml/train.py`, `ml/evaluate.py`, `ml/explain.py`, configured by `ml/config.py` (Week 3; implemented). Changing any of these re-runs the DVC model stages — commit the regenerated `dvc.lock` alongside the change.
+- **Where tracking and registry code lives:** `ml/tracking.py` and `ml/registry.py` (Week 4; implemented). An alias must only ever move through `ml.registry.set_alias`, so the audit row cannot be skipped.
 - **Where new AI models/LLM clients will live:** `loop/narrate/` (Week 9; not yet created) — and must use `gemini-2.5-flash` per the project's mandatory constraint, with the offline-vs-cloud conflict (§9) resolved before writing that code.
 - **Where configuration will live:** `configs/` (policy versions, gate criteria — not yet created, Week 7+); environment variables should go in a gitignored `.env` with a committed `.env.example`, created when the first component actually needs one (do not create ahead of need).
 - **Branch conventions:** `main` is the only long-lived branch and must always be demoable — the roadmap's "Friday demo rule" (`project_docs/IMPLEMENTATION_ROADMAP.md`, Standing Rules). Work happens on short-lived branches named `week<N>/<topic>` (e.g. `week3/lightgbm-training`), or `fix/<topic>` for corrections outside the weekly cadence. Branches merge into `main` only with `ruff check .`, `ruff format --check .`, and `pytest -q` green; CI enforces the same three on every push and pull request. Delete the branch after merge.

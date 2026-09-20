@@ -1,7 +1,7 @@
 # Running the Project — VitalLoop 2.0
 
-> **Milestone covered by this document: Week 3 of the 12-week roadmap.**
-> This document describes only what exists and runs in the repository today. Features planned for Week 4 onward (MLflow, the API, monitoring, the Decision Engine, the dashboard, LLM narration) are **not implemented** and are not covered here — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full pending list.
+> **Milestone covered by this document: Week 4 of the 12-week roadmap.**
+> This document describes only what exists and runs in the repository today. Features planned for Week 5 onward (the API, monitoring, the Decision Engine, the dashboard, LLM narration) are **not implemented** and are not covered here — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full pending list.
 
 ---
 
@@ -31,14 +31,15 @@ Only technologies **actually present in the repository today** are listed. Every
 | **DVC** | 3.67.1 | Hash-pinned data versioning without cloud credentials | Versions the raw and processed datasets via a **local** remote |
 | **ucimlrepo** | 0.0.7 | Official UCI ML Repository fetch helper | Downloads the primary dataset programmatically (`ml/data/ingest.py`) |
 | **Jupyter / ipykernel** | 1.0+ / 6.29+ | Interactive EDA | Runs `notebooks/01_eda.ipynb` |
-| **pytest** | 9.1.1 | Standard Python test runner | 70 tests: Week 2 data contract plus Week 3 model, calibration, and SHAP contracts |
+| **pytest** | 9.1.1 | Standard Python test runner | 93 tests: Week 2 data contract, Week 3 model/calibration/SHAP, and Week 4 tracking/registry contracts |
 | **ruff** | 0.16.8 | Fast combined linter/formatter | Enforced via `pyproject.toml`, the pre-commit hook, and CI (`check` + `format --check`) |
 | **pre-commit** | 4.6.2 | Runs ruff automatically on commit | Installed (`.git/hooks/pre-commit`); hook pinned to ruff v0.16.8 to match the pinned CLI |
 | **LightGBM** | 4.7.0 | Gradient boosting is the right tool for mid-size tabular clinical data (`project_docs/TECH_STACK.md`) | The Week 3 readmission classifier |
 | **SHAP** | 0.52.0 | Fast, exact attributions for tree models | Global + per-prediction explanations (`ml/explain.py`) |
 | **matplotlib** | 3.11.2 | Figure rendering | Calibration curve and SHAP summary PNGs |
 | **joblib** | 1.6.0 | sklearn's own serialisation format | Persists the fitted model bundle |
-| **Docker + Docker Compose** | 29.5.2 / v5.1.4 | Documented Windows-friction mitigation; offline-by-design | Runs a single `postgres:16` container (empty — no application schema yet) |
+| **MLflow** | 3.16.1 | Tracking + registry + artifact store in one self-hostable service; aliases model promotion natively (`project_docs/TECH_STACK.md`) | Week 4 experiment tracking, lineage, and the model registry |
+| **Docker + Docker Compose** | 29.5.2 / v5.1.4 | Documented Windows-friction mitigation; offline-by-design | Runs `postgres:16` (empty — no application schema yet) and the Week 4 `mlflow` tracking server |
 | **Git** | 2.53.0 | Version control | Repository initialized; `origin` configured; Week 1–2 history committed |
 | **Node.js** | 24.14.0 | Pre-existing in the repo before this build | Used *only* by `project_docs/build_pdf.mjs` to render the planning-doc PDF; unrelated to the application and not required to run anything in this document |
 
@@ -315,6 +316,97 @@ model on *this* encoding.
 
 **No `docker compose up` for an "app" container** — only Postgres exists in `docker-compose.yml` today. There is no frontend dev server, no backend server, and no `npm start`/`uvicorn` command to run, because none of those components exist yet.
 
+### 9.2 The Week 4 tracked run (MLflow)
+
+MLflow records *what the Week 3 workflow produced*. It does not retrain
+differently or change the evaluation protocol, so a tracked run's numbers are
+the Week 3 numbers by construction.
+
+**Start the tracking service** (Postgres and MLflow are independent; starting
+one does not disturb the other):
+
+```bash
+cd docker && docker compose up -d mlflow && cd ..
+# UI: http://localhost:5000
+```
+
+**Run the tracked workflow** — one command, which runs training, evaluation,
+SHAP, then logging:
+
+```bash
+export MLFLOW_TRACKING_URI=http://localhost:5000   # PowerShell: $env:MLFLOW_TRACKING_URI="http://localhost:5000"
+python -m ml.tracking
+```
+
+**Where tracking data lives.** Two independent stores, by design:
+
+| Mode | Tracking URI | Store | Used for |
+|---|---|---|---|
+| Compose (documented default) | `http://localhost:5000` | SQLite + proxied artifacts on the `mlflow-data` volume | The UI, the registry, the Week 4 deliverable |
+| Local (no Docker) | `sqlite:///mlflow/mlflow.db` | `mlflow/` in the repo, gitignored | Offline development and the test suite |
+
+If `MLFLOW_TRACKING_URI` is unset, the local store is used. If it *is* set but
+the server is unreachable, the run **fails loudly** rather than quietly writing
+somewhere else — a "tracked" run that silently goes nowhere is the one failure
+experiment tracking exists to prevent.
+
+The MLflow service uses a SQLite backend rather than the Postgres container
+next door: the official image ships no `psycopg2`, so a Postgres backend would
+need a custom image or a pip install at container start, and the latter breaks
+the offline-demo requirement. `--serve-artifacts` makes the server proxy
+artifact uploads, so artifact URIs are server-relative rather than host paths —
+that is what avoids the Windows artifact-path problem the roadmap flags as the
+Week 4 risk.
+
+**What is recorded.**
+
+| Kind | Contents |
+|---|---|
+| Params (42) | Model type, every LightGBM parameter actually used, the early-stopping selection, random seed, calibration method and folds, feature-pipeline identity, excluded columns, train/eval paths, row counts and positive rates, library versions |
+| Lineage params | `git_commit`, `git_branch`, `git_dirty`, and the `dvc_*_md5` hashes for the raw, train, eval and model artifacts |
+| Metrics (69) | Every Week 3 metric, with the raw-vs-calibrated distinction preserved in the names (`raw_roc_auc` / `calibrated_roc_auc`, …), both threshold blocks, and per-subgroup ROC-AUC |
+| Artifacts | `metrics.json`, `reliability_curve.csv`, `shap_global_importance.csv`, `model_metadata.json`, both figures, and a **redacted** copy of the local SHAP example |
+| Models | `calibrated_model` (registered) and `base_model` (for SHAP), both reloadable |
+
+**What is deliberately not recorded:** the raw and processed patient CSVs (they
+belong to DVC — MLflow stores their *hashes*, not their contents), any `.env` or
+credential, and the per-encounter `feature_value` fields from the local SHAP
+example. No `input_example`/signature is logged either, because inferring one
+would embed a real encounter's feature row in the model artifact.
+
+**Inspect a run:**
+
+```bash
+# in the UI
+open http://localhost:5000            # experiment: vitalloop-readmission
+
+# or from Python
+python -c "from mlflow.tracking import MlflowClient; c=MlflowClient('http://localhost:5000'); e=c.get_experiment_by_name('vitalloop-readmission'); r=c.search_runs([e.experiment_id])[0]; print(r.info.run_id, r.data.params['git_commit'], r.data.metrics['calibrated_roc_auc'])"
+```
+
+**Model registration.** The run registers the calibrated model as
+`vitalloop-readmission` and sets the `champion` alias on version 1 — the
+roadmap's Week 4 deliverable. Registration is *not* promotion: once a champion
+exists, later runs register a new version and leave the alias alone, because
+moving a champion is what Week 8's validation gate and Week 9's human approval
+exist to authorise. Alias moves are the only way a model changes state
+(`ARCHITECTURE.md` §3.5) and every move appends a row to
+`mlflow/registry_audit.jsonl` recording the alias, both versions, run id, git
+commit, actor, reason and timestamp. That file is JSONL because the Postgres
+table that will hold those rows arrives in Week 5.
+
+Load the registered model:
+
+```bash
+python -c "import mlflow; mlflow.set_tracking_uri('http://localhost:5000'); m=mlflow.sklearn.load_model('models:/vitalloop-readmission@champion'); print(type(m).__name__)"
+```
+
+**Running the tests without a live MLflow server.** The suite never contacts the
+Compose service: every tracking test builds a throwaway SQLite store under
+`tmp_path`. SQLite rather than a bare file store because the Model Registry
+requires a database backend. Just run `pytest -q` — no `MLFLOW_TRACKING_URI`, no
+container, no network.
+
 ---
 
 ## 10. Testing the Project
@@ -345,7 +437,7 @@ print('No patient leakage across splits: OK')
 
 **How to verify AI integration:** not applicable — no AI/LLM integration exists yet (§7).
 
-**Expected successful state at Week 3:** `pytest` reports 70 passed (50 passed / 20 skipped if the datasets and model artifacts have not been built), `ruff check .` reports clean, `dvc repro` reports "up to date," and the three processed CSVs exist with disjoint `patient_nbr` sets summing to 69,990 rows.
+**Expected successful state at Week 4:** `pytest` reports 93 passed (73 passed / 20 skipped if the datasets and model artifacts have not been built), `ruff check .` reports clean, `dvc repro` reports "up to date," and the three processed CSVs exist with disjoint `patient_nbr` sets summing to 69,990 rows.
 
 ---
 
@@ -364,10 +456,10 @@ print('No patient leakage across splits: OK')
 
 ## 12. Current Limitations
 
-(Scoped strictly to Week 3 — this is not a roadmap of what's missing overall, just what a developer running the project today should know.)
+(Scoped strictly to Week 4 — this is not a roadmap of what's missing overall, just what a developer running the project today should know.)
 
 - **No backend, no frontend, no API.** Only the data pipeline (`ml/data/`) and the Week 3 model code (`ml/train.py`, `ml/evaluate.py`, `ml/explain.py`) exist; the model is a local artifact, not a served endpoint.
-- **No model registry and no serving.** A calibrated LightGBM model now exists in `models/`, but nothing registers, versions, or serves it — MLflow is Week 4 and the FastAPI service is Week 5. Promotion, shadow deployment, and the validation gate do not exist, so this model is not a "champion" in the governance sense.
+- **No serving, and no governed promotion.** The model is registered in MLflow with a `champion` alias, but nothing *serves* it — the FastAPI service is Week 5. The `challenger` and `shadow` aliases are defined and unused; shadow deployment, the validation gate, and human approval arrive in Weeks 8–9, so the `champion` alias currently means "the first registered version", not "a model that passed a gate".
 - **No database schema.** Postgres runs but is empty; nothing writes to it yet.
 - **No monitoring, no Decision Engine, no gate, no shadow deployment, no dashboard.** All Week 6+.
 - **No LLM/Gemini integration exists yet**, and the offline-LLM-vs-Gemini-mandate conflict (§7) is unresolved.
@@ -379,7 +471,7 @@ print('No patient leakage across splits: OK')
 
 ## 13. Current Project Status
 
-**Completed (Week 1 + Week 2 + Week 3 exit criteria):**
+**Completed (Week 1 + Week 2 + Week 3 + Week 4 exit criteria):**
 - Repo scaffold, ruff + pre-commit + basic CI (lint + test) configuration
 - Docker Compose skeleton running PostgreSQL 16 (empty)
 - UCI Diabetes 130-US dataset downloaded and verified (101,766 × 50 columns)
@@ -395,9 +487,11 @@ print('No patient leakage across splits: OK')
 - `ml/explain.py` — SHAP TreeExplainer global + local explanations over the exact transformed matrix
 - Week 3 model on the frozen eval slice: ROC-AUC 0.6024 calibrated (0.5996 raw), Brier 0.0741, ECE 0.0201
 - `dvc repro` now runs four stages and is byte-reproducible end to end
-- 70/70 pytest tests passing; `ruff check .` and `ruff format --check .` clean
+- `ml/tracking.py` + `ml/registry.py` — MLflow tracking with git/DVC lineage, artifact logging, and the alias audit trail
+- MLflow service in Compose, UI on :5000; `vitalloop-readmission` v1 registered with the `champion` alias
+- 93/93 pytest tests passing; `ruff check .` and `ruff format --check .` clean
 
-**In Progress:** nothing — Week 3 is a clean stopping point with no partially-built component.
+**In Progress:** nothing — Week 4 is a clean stopping point with no partially-built component.
 
 **Open question carried into Week 4:** the Week 3 model scores ~0.60 ROC-AUC,
 below the ~0.64–0.69 range `project_docs/DATASET_ANALYSIS.md` cites for this

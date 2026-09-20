@@ -10,5 +10,28 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  # Week 4: MLflow tracking + model registry.
+  # SQLite backend rather than the Postgres service next door: the official
+  # MLflow image ships no psycopg2, so a Postgres backend would need either a
+  # custom image or a pip install at container start, and the latter breaks the
+  # project's offline-demo requirement. Switching later is a one-line change.
+  # --serve-artifacts makes the server proxy artifact uploads, so artifact URIs
+  # are server-relative instead of host paths -- this is what avoids the Windows
+  # artifact-path problem the roadmap flags as the Week 4 risk.
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --artifacts-destination /mlflow/artifacts
+      --serve-artifacts
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow-data:/mlflow
+
 volumes:
   pgdata:
+  mlflow-data:

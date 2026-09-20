@@ -15,6 +15,9 @@
 *.dvc     text eol=lf
 dvc.lock  text eol=lf
 *.txt     text eol=lf
+# JSON run artifacts are written with LF by ml/ so their hashes do not differ
+# between Windows and Linux; declare it so git agrees.
+*.json    text eol=lf
 # Notebooks are reformatted by the ruff-format pre-commit hook, so they need a
 # stable end-of-line policy too; otherwise the hook and autocrlf fight each other.
 *.ipynb   text eol=lf
