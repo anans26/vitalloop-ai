@@ -1,7 +1,7 @@
 # Running the Project — VitalLoop 2.0
 
-> **Milestone covered by this document: Week 2 of the 12-week roadmap.**
-> This document describes only what exists and runs in the repository today. Features planned for Week 3 onward (model training, MLflow, the API, monitoring, the Decision Engine, the dashboard, LLM narration) are **not implemented** and are not covered here — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full pending list.
+> **Milestone covered by this document: Week 3 of the 12-week roadmap.**
+> This document describes only what exists and runs in the repository today. Features planned for Week 4 onward (MLflow, the API, monitoring, the Decision Engine, the dashboard, LLM narration) are **not implemented** and are not covered here — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full pending list.
 
 ---
 
@@ -31,9 +31,13 @@ Only technologies **actually present in the repository today** are listed. Every
 | **DVC** | 3.67.1 | Hash-pinned data versioning without cloud credentials | Versions the raw and processed datasets via a **local** remote |
 | **ucimlrepo** | 0.0.7 | Official UCI ML Repository fetch helper | Downloads the primary dataset programmatically (`ml/data/ingest.py`) |
 | **Jupyter / ipykernel** | 1.0+ / 6.29+ | Interactive EDA | Runs `notebooks/01_eda.ipynb` |
-| **pytest** | 9.1.1 | Standard Python test runner | 34 tests across schema/clean/features/split plus processed-dataset contract checks |
+| **pytest** | 9.1.1 | Standard Python test runner | 70 tests: Week 2 data contract plus Week 3 model, calibration, and SHAP contracts |
 | **ruff** | 0.16.8 | Fast combined linter/formatter | Enforced via `pyproject.toml`, the pre-commit hook, and CI (`check` + `format --check`) |
 | **pre-commit** | 4.6.2 | Runs ruff automatically on commit | Installed (`.git/hooks/pre-commit`); hook pinned to ruff v0.16.8 to match the pinned CLI |
+| **LightGBM** | 4.7.0 | Gradient boosting is the right tool for mid-size tabular clinical data (`project_docs/TECH_STACK.md`) | The Week 3 readmission classifier |
+| **SHAP** | 0.52.0 | Fast, exact attributions for tree models | Global + per-prediction explanations (`ml/explain.py`) |
+| **matplotlib** | 3.11.2 | Figure rendering | Calibration curve and SHAP summary PNGs |
+| **joblib** | 1.6.0 | sklearn's own serialisation format | Persists the fitted model bundle |
 | **Docker + Docker Compose** | 29.5.2 / v5.1.4 | Documented Windows-friction mitigation; offline-by-design | Runs a single `postgres:16` container (empty — no application schema yet) |
 | **Git** | 2.53.0 | Version control | Repository initialized; `origin` configured; Week 1–2 history committed |
 | **Node.js** | 24.14.0 | Pre-existing in the repo before this build | Used *only* by `project_docs/build_pdf.mjs` to render the planning-doc PDF; unrelated to the application and not required to run anything in this document |
@@ -213,6 +217,102 @@ dvc repro
 python -m jupyter execute --inplace notebooks/01_eda.ipynb
 ```
 
+`dvc repro` now runs four stages: the Week 2 `build_dataset`, then the Week 3
+`train_model`, `evaluate_model`, and `explain_model`. A full forced rebuild
+(`dvc repro -f`) takes roughly 45 seconds and is byte-reproducible — every
+artifact hash is identical run to run.
+
+### 9.1 The Week 3 model workflow
+
+Each stage is also runnable on its own, which is what `dvc repro` calls:
+
+```bash
+python -m ml.train      # fits the model, writes models/
+python -m ml.evaluate   # scores the frozen eval slice, writes reports/metrics.json
+python -m ml.explain    # SHAP global + local explanations, writes reports/
+```
+
+**What is trained.** A LightGBM binary classifier on the `readmitted_30d` target,
+wrapped in the *same* `ml.data.features` pipeline used everywhere else — Week 3
+introduces no second preprocessing path. Two objects are fitted and saved
+together in `models/readmission_model.joblib`:
+
+| Object | What it is | Used for |
+|---|---|---|
+| `base_model` | `Pipeline(features → LGBMClassifier)` | SHAP explanations, raw-probability comparison |
+| `calibrated_model` | `CalibratedClassifierCV(base, isotonic, cv=5)` | **inference** — this is the model that produces the reported probabilities |
+
+The tree count is not hand-picked: `select_n_estimators` runs early stopping
+against a chronological validation tail taken from the **training** slice (the
+last 15% of `train.csv`), and the resulting count is reused for both models. At a
+fixed 300 trees the model scored 0.82 AUROC on train against 0.59 on eval; early
+stopping cut that to 82 trees and roughly halved the gap. This is one principled
+mechanism, not a hyperparameter search — the roadmap caps Week 3 tuning
+deliberately.
+
+**Which split is used.**
+
+| Slice | Role in Week 3 |
+|---|---|
+| `datasets/processed/train.csv` | Model fitting, calibration (via 5-fold CV), and early-stopping validation |
+| `datasets/processed/eval_frozen.csv` | Final scoring only — never fitted on |
+| `datasets/processed/future_stream.csv` | **Untouched.** Reserved for the Week 6 drift scenarios |
+
+`ml/config.py` deliberately exposes no path constant for `future_stream.csv`, and
+a test asserts no Week 3 module contains code referencing it.
+
+**Which metrics are reported.** `reports/metrics.json` carries the full block for
+raw *and* calibrated probabilities — ROC-AUC, average precision (PR-AUC), Brier
+score, log loss, expected calibration error, recall at the top risk decile, and
+classification counts at **two** documented thresholds. No single number is
+presented as the score.
+
+The two thresholds matter. At the nominal `0.5` cut the model flags almost
+nobody (2 of 10,498 patients), which is the expected behaviour of a calibrated
+model on an 8% base rate — not a bug. The **top-decile threshold** (0.139) is the
+operating point a readmission worklist actually uses: flag the highest-risk 10%
+of patients, capturing 17.1% of true readmissions. Subgroup ROC-AUC by age,
+gender, and race is recorded too, because Week 8's promotion gate blocks on
+subgroup regression and needs a baseline on record now.
+
+**How calibration works.** `CalibratedClassifierCV` with `method="isotonic"` and
+`cv=5`, fitted on the training slice only. Because the wrapper clones and refits
+the whole pipeline inside each fold, preprocessing is fitted on fold-train alone
+and the isotonic map never sees rows the underlying model was fitted on. The
+frozen evaluation slice is read only to compare raw against calibrated
+probabilities afterwards. `reports/reliability_curve.csv` holds the binned
+predicted-vs-observed table for both variants, and
+`reports/figures/calibration_curve.png` plots it.
+
+**How SHAP explanations are generated.** `ml/explain.py` uses
+`shap.TreeExplainer` on the **base (uncalibrated)** model. Two reasons: the
+explainer needs the tree ensemble itself, which the calibrated wrapper hides
+behind five per-fold clones; and isotonic calibration is a monotonic remap of the
+score, so it changes the probability a patient receives but not the ranking or
+the relative contribution of features.
+
+Every explanation runs on the exact matrix the model consumes. The pipeline
+one-hot encodes, so the model never sees `race` — it sees `cat__race_Other` and
+friends, and explanations are labelled with the ColumnTransformer's own
+`get_feature_names_out()` names (249 transformed features). A test asserts SHAP
+additivity: `sigmoid(base_value + sum(shap_values))` must equal the model's
+`predict_proba` output, which is what proves the explanation describes *this*
+model on *this* encoding.
+
+**Where artifacts are stored.**
+
+| Path | Contents | In git? |
+|---|---|---|
+| `models/readmission_model.joblib` | Both fitted models | No — DVC output |
+| `models/model_metadata.json` | Model type, target, excluded columns, seed, params, tree-count selection, data identity, library versions | No — DVC output |
+| `reports/metrics.json` | The metric suite | **Yes** — a DVC metric with `cache: false`, so quality changes show up as reviewable diffs |
+| `reports/reliability_curve.csv` | Binned calibration table | No — DVC output |
+| `reports/shap_global_importance.csv` | Mean abs SHAP per transformed feature | No — DVC output |
+| `reports/shap_local_example.json` | Worked single-patient explanation | No — DVC output |
+| `reports/figures/*.png` | Calibration curve, SHAP summary | No — DVC output |
+
+`dvc metrics show` prints the tracked metrics without opening the file.
+
 **No `docker compose up` for an "app" container** — only Postgres exists in `docker-compose.yml` today. There is no frontend dev server, no backend server, and no `npm start`/`uvicorn` command to run, because none of those components exist yet.
 
 ---
@@ -245,7 +345,7 @@ print('No patient leakage across splits: OK')
 
 **How to verify AI integration:** not applicable — no AI/LLM integration exists yet (§7).
 
-**Expected successful state at Week 2:** `pytest` reports 34 passed (23 passed / 11 skipped if the datasets have not been built), `ruff check .` reports clean, `dvc repro` reports "up to date," and the three processed CSVs exist with disjoint `patient_nbr` sets summing to 69,990 rows.
+**Expected successful state at Week 3:** `pytest` reports 70 passed (50 passed / 20 skipped if the datasets and model artifacts have not been built), `ruff check .` reports clean, `dvc repro` reports "up to date," and the three processed CSVs exist with disjoint `patient_nbr` sets summing to 69,990 rows.
 
 ---
 
@@ -264,14 +364,14 @@ print('No patient leakage across splits: OK')
 
 ## 12. Current Limitations
 
-(Scoped strictly to Week 2 — this is not a roadmap of what's missing overall, just what a developer running the project today should know.)
+(Scoped strictly to Week 3 — this is not a roadmap of what's missing overall, just what a developer running the project today should know.)
 
-- **No backend, no frontend, no API.** Only the data pipeline (`ml/data/`) exists.
-- **No trained production model.** Only a quick, deliberately unoptimized Week 1 baseline logistic regression (AUROC 0.6191) recorded in the notebook — not the calibrated LightGBM model planned for Week 3.
+- **No backend, no frontend, no API.** Only the data pipeline (`ml/data/`) and the Week 3 model code (`ml/train.py`, `ml/evaluate.py`, `ml/explain.py`) exist; the model is a local artifact, not a served endpoint.
+- **No model registry and no serving.** A calibrated LightGBM model now exists in `models/`, but nothing registers, versions, or serves it — MLflow is Week 4 and the FastAPI service is Week 5. Promotion, shadow deployment, and the validation gate do not exist, so this model is not a "champion" in the governance sense.
 - **No database schema.** Postgres runs but is empty; nothing writes to it yet.
 - **No monitoring, no Decision Engine, no gate, no shadow deployment, no dashboard.** All Week 6+.
 - **No LLM/Gemini integration exists yet**, and the offline-LLM-vs-Gemini-mandate conflict (§7) is unresolved.
-- **No git commits exist yet** — the repository is initialized and everything is staged/untracked (see §13).
+- **No shared remote history** — commits exist locally and `origin` is configured, but the Week 1–3 history has not been pushed.
 - **Single-machine, local-only setup.** DVC's remote is a local directory (`dvc-storage/`, gitignored) — there is no shared/team remote configured.
 - **Windows encoding caveat** (§11): non-ASCII characters in notebooks require `PYTHONUTF8=1` on this OS when using `jupyter execute` from a script; interactive Jupyter (browser) does not hit this issue.
 
@@ -279,7 +379,7 @@ print('No patient leakage across splits: OK')
 
 ## 13. Current Project Status
 
-**Completed (Week 1 + Week 2 exit criteria, both met):**
+**Completed (Week 1 + Week 2 + Week 3 exit criteria):**
 - Repo scaffold, ruff + pre-commit + basic CI (lint + test) configuration
 - Docker Compose skeleton running PostgreSQL 16 (empty)
 - UCI Diabetes 130-US dataset downloaded and verified (101,766 × 50 columns)
@@ -290,8 +390,25 @@ print('No patient leakage across splits: OK')
 - `ml/data/icd9.py` + `ml/data/features.py` — single sklearn `Pipeline`, confirmed identical train/serve output width
 - `ml/data/split.py` — patient-level time-sliced split; zero-leakage unit test passes on real data
 - DVC initialized with a local remote; `dvc repro` confirmed idempotent; `dvc push` succeeded
-- 34/34 pytest tests passing; `ruff check .` and `ruff format --check .` clean
+- `ml/config.py`, `ml/train.py` — LightGBM + isotonic calibration, tree count chosen by early stopping on a training-slice tail
+- `ml/evaluate.py` — ROC-AUC / PR-AUC / Brier / log loss / ECE / recall@top-decile, counts at two thresholds, subgroup metrics
+- `ml/explain.py` — SHAP TreeExplainer global + local explanations over the exact transformed matrix
+- Week 3 model on the frozen eval slice: ROC-AUC 0.6024 calibrated (0.5996 raw), Brier 0.0741, ECE 0.0201
+- `dvc repro` now runs four stages and is byte-reproducible end to end
+- 70/70 pytest tests passing; `ruff check .` and `ruff format --check .` clean
 
-**In Progress:** nothing — Week 2 is a clean stopping point with no partially-built component.
+**In Progress:** nothing — Week 3 is a clean stopping point with no partially-built component.
+
+**Open question carried into Week 4:** the Week 3 model scores ~0.60 ROC-AUC,
+below the ~0.64–0.69 range `project_docs/DATASET_ANALYSIS.md` cites for this
+dataset. Those published figures come from *random* splits, usually without
+patient-level deduplication. Under this project's stricter protocol — one
+encounter per patient, chronological split, and a prevalence shift across time
+(train 9.7% positive, eval 8.1%) — the same logistic-regression baseline that
+scored 0.6191 on Week 1's random split scores 0.5820 on the chronological one.
+The honest comparison is therefore LightGBM 0.5996 against logistic 0.5820 under
+identical conditions. Whether to restate the roadmap's "at or above published
+benchmarks" outcome in light of the stricter protocol is a decision for review,
+not something Week 3 resolved by tuning.
 
 **Remaining (Week 3 onward — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full list):** LightGBM model + calibration + SHAP, MLflow tracking/registry, FastAPI serving + JWT + audit rows, Evidently drift monitoring + seeded scenarios, the Decision Engine + Decision Card, the retrain pipeline + validation gate, shadow deployment + human approval + LLM narration, the Streamlit dashboard + audit PDF export, CI/CD hardening, and final reporting/viva prep.

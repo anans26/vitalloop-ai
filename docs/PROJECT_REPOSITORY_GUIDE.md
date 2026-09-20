@@ -79,7 +79,10 @@ MLOPS PROJECT/
 │   ├── RUNNING_THE_PROJECT.md
 │   └── PROJECT_REPOSITORY_GUIDE.md
 ├── node_modules/                   # Pre-existing; only `marked`, used by build_pdf.mjs
-├── dvc.yaml                        # DVC pipeline definition (the `build_dataset` stage)
+├── models/                          # Fitted model bundle + run metadata (DVC outputs, gitignored)
+├── reports/                         # Metrics, calibration table, SHAP tables, figures (DVC outputs;
+│                                   #   reports/metrics.json is a git-tracked DVC metric)
+├── dvc.yaml                        # DVC pipeline: build_dataset → train_model → evaluate_model → explain_model
 ├── dvc.lock                        # DVC's record of exact input/output hashes for the last run
 ├── pyproject.toml                  # ruff + pytest configuration
 ├── requirements.txt                # Week 1-2 direct dependencies (lower bounds)
@@ -130,8 +133,8 @@ MLOPS PROJECT/
 - **Purpose:** the **single** feature-transformation path used identically at training and (future) serving time, per `project_docs/ARCHITECTURE.md` §3.2's train/serve-skew-by-construction requirement.
 - **Contains:** `FeatureEngineer` (a scikit-learn `TransformerMixin` adding `service_utilization`, `num_med_changes`, `insulin_changed`, `procedure_rate`, per-diagnosis ICD-9 chapters, and an admission-source risk group), `ADMISSION_SOURCE_GROUPS` (a lookup built from the dataset's published `IDs_mapping.csv` semantics), and `build_feature_pipeline()`, which returns an unfitted `sklearn.pipeline.Pipeline` combining `FeatureEngineer` with a `ColumnTransformer` (median-impute + scale numerics, ordinal-encode age bands, one-hot-encode the rest).
 - **Dependencies:** `pandas`, `scikit-learn`, `ml.data.icd9`.
-- **Used by:** `ml/data/build_dataset.py` does **not** currently call this (Week 2's DVC stage produces cleaned/split CSVs, not a fitted model-ready matrix — fitting happens in Week 3 alongside the model). It is exercised directly by `tests/data/test_features.py`, which confirms a `fit_transform` on one slice and `transform` on another slice produce identical output width (the train/serve-skew guard).
-- **Status:** implemented and tested; **not yet wired into a training run** (there is no model consuming its output yet — that's Week 3).
+- **Used by:** `ml/data/build_dataset.py` does **not** call this (Week 2's DVC stage produces cleaned/split CSVs, not a fitted matrix). It is fitted by `ml/train.py` as the first step of the model pipeline, and exercised directly by `tests/data/test_features.py`, which confirms a `fit_transform` on one slice and `transform` on another produce identical output width (the train/serve-skew guard).
+- **Status:** implemented, tested, and consumed by the Week 3 model — it is the only preprocessing path, fitted inside both the base pipeline and each calibration fold.
 
 ### `ml/data/split.py`
 - **Purpose:** patient-level, time-sliced split into `train` / `eval_frozen` / `future_stream`, using `encounter_id` order as a chronology proxy (the dataset has no real timestamps, per `project_docs/DATASET_ANALYSIS.md`).
@@ -154,6 +157,30 @@ MLOPS PROJECT/
 - **Dependencies:** `pandas`, `scikit-learn`.
 - **Status:** fully executed with real output (not just written and unrun).
 
+### `ml/config.py`
+- **Purpose:** Week 3 training configuration — artifact paths, the random seed, LightGBM parameters, calibration settings, threshold and subgroup choices.
+- **Notable:** exposes **no** path constant for `future_stream.csv`, which is how the "reserved for Week 6" rule is enforced rather than merely documented.
+- **Status:** implemented.
+
+### `ml/train.py`
+- **Purpose:** fits and persists the readmission model.
+- **Contains:** `select_n_estimators` (early stopping on a chronological tail of the training slice), `build_base_model`, `build_calibrated_model`, `train_models`, `build_metadata`, `save_models`, `load_models`.
+- **Produces:** `models/readmission_model.joblib` (a dict of `base_model` and `calibrated_model`) and `models/model_metadata.json`.
+- **Design note:** the metadata file carries **no wall-clock timestamp** — it is a DVC stage output, and a timestamp would change its hash on every run. Run timing belongs to MLflow in Week 4.
+- **Status:** implemented; trains on 48,993 rows, early stopping selects 82 trees.
+
+### `ml/evaluate.py`
+- **Purpose:** the metric suite on the frozen evaluation slice.
+- **Contains:** `expected_calibration_error`, `recall_at_top_fraction`, `threshold_counts`, `top_decile_threshold`, `score_predictions`, `reliability_table`, `subgroup_metrics`, and a `main()` that writes the report artifacts.
+- **Design note:** every function is a pure function over `(y_true, y_prob)`, which is what makes the metrics unit-testable against hand-computed cases — the same property Week 8's validation gate will need.
+- **Status:** implemented.
+
+### `ml/explain.py`
+- **Purpose:** SHAP explanations that describe the exact matrix the model consumes.
+- **Contains:** `transformed_feature_names`, `transform_features`, `build_explainer`, `sample_matrix`, `global_importance`, `explain_instance`, and a `main()` that writes the SHAP artifacts.
+- **Design note:** explains the **uncalibrated** base model. TreeExplainer needs the tree ensemble itself, and isotonic calibration is a monotonic remap — it changes the probability, not the ranking or the relative feature contributions.
+- **Status:** implemented; 249 transformed features.
+
 ### `docker/docker-compose.yml`
 - **Purpose:** local PostgreSQL 16 instance.
 - **Contains:** one service (`postgres`), credentials sourced from `docker/.env` (gitignored) via `${VAR}` substitution — `docker/.env.example` is the committed template — a named volume for persistence.
@@ -164,7 +191,7 @@ MLOPS PROJECT/
 - **Status:** implemented; both files exist and are consistent with the current data.
 
 ### `tests/data/*.py`
-- **Purpose:** 34 tests across schema, clean, features, split, and the built processed datasets.
+- **Purpose:** 70 tests across schema, clean, features, split, the built processed datasets, and the Week 3 model/calibration/SHAP contracts.
 - **The one worth calling out specifically:** `tests/data/test_split.py::test_split_produces_no_patient_overlap_across_any_pair_of_splits` — this is the exact unit test `project_docs/RISK_ANALYSIS.md` calls for ("killed by tests, not vigilance").
 - **Status:** all 34 pass. `tests/data/test_processed_datasets.py` asserts the data contract against the real 69,990-row processed output directly (no raw target column, zero patient overlap, 70/15/15, no leakage dispositions); it skips automatically when the datasets have not been built, so CI stays green without the data.
 
@@ -194,9 +221,9 @@ MLOPS PROJECT/
 | `ml/data/schema.py` | Fail-fast validation | `pandera` | Raw dataframe | Validated dataframe or `SchemaErrors` | Done | Will also validate future mock-FHIR ingestion (Week 6+, not yet built) |
 | `ml/data/clean.py` | Leakage-safe cleaning | `pandas` | Validated dataframe | Cleaned dataframe with `readmitted_30d` target; raw `readmitted` dropped | Done | Consumed unchanged by Week 3 training |
 | `ml/data/icd9.py` | Diagnosis grouping | `pandas` | Raw ICD-9 code series | Chapter-label series | Done | — |
-| `ml/data/features.py` | Train==serve transform | `scikit-learn`, `icd9.py` | Cleaned dataframe | Encoded numeric matrix | Done, **not yet consumed by a model** | Week 3 will `fit` this alongside LightGBM training; Week 5's FastAPI service will `transform` with the *same fitted instance* at inference time |
+| `ml/data/features.py` | Train==serve transform | `scikit-learn`, `icd9.py` | Cleaned dataframe | Encoded numeric matrix (249 columns) | Done, consumed by `ml/train.py` | Week 5's FastAPI service will `transform` with the *same fitted instance* at inference time |
 | `ml/data/split.py` | Leakage-free split | `pandas` | Cleaned, deduped dataframe | 3 dataframes (train/eval_frozen/future_stream) | Done | `future_stream` is reserved for the Week 6 seeded drift scenarios (not yet built) |
-| `ml/data/build_dataset.py` | Pipeline orchestration | all of the above | Raw CSV path | 3 processed CSVs | Done | Will likely gain a second DVC stage for model training in Week 3 |
+| `ml/data/build_dataset.py` | Pipeline orchestration | all of the above | Raw CSV path | 3 processed CSVs | Done | Week 3 added three further DVC stages downstream (`train_model`, `evaluate_model`, `explain_model`) |
 
 ---
 
@@ -233,7 +260,7 @@ The five-plane target (data → model → serving → self-healing loop → obse
 
 ---
 
-## 6. Development Timeline (Weeks 1–2 only)
+## 6. Development Timeline (Weeks 1–3)
 
 ### Week 1 — Setup, EDA, Baseline
 
@@ -260,10 +287,24 @@ The five-plane target (data → model → serving → self-healing loop → obse
 - **Frontend work:** none (Week 10).
 - **Backend work:** the data pipeline itself is the "backend" work at this stage.
 - **AI/ML work:** none new (feature pipeline is ML-adjacent infrastructure, not a model).
-- **Testing:** 34 pytest tests, all passing; `ruff check .` and `ruff format --check .` clean.
+- **Testing:** 70 pytest tests, all passing; `ruff check .` and `ruff format --check .` clean.
 - **Deliverables (per roadmap, both met):** `dvc repro` rebuilds the hashed dataset deterministically; documented, tested split strategy.
 
 ---
+
+### Week 3 — Model, Calibration, Explainability
+
+- **Objectives:** a calibrated readmission model, honestly evaluated, with explanations.
+- **Completed work:** LightGBM classifier over the existing feature pipeline; isotonic calibration via 5-fold CV on the training slice; tree count selected by early stopping on a chronological training-slice tail; full metric suite on the frozen evaluation slice; SHAP global and local explanations; three new DVC stages.
+- **Files created:** `ml/config.py`, `ml/train.py`, `ml/evaluate.py`, `ml/explain.py`, `tests/conftest.py`, `tests/test_train.py`, `tests/test_evaluate.py`, `tests/test_explain.py`, `tests/test_week3_artifacts.py`.
+- **Modules completed:** model training, evaluation, explainability.
+- **APIs completed:** none (Week 5).
+- **Database work:** none — nothing writes to Postgres yet.
+- **AI/ML work:** calibrated LightGBM; eval ROC-AUC 0.6024 calibrated / 0.5996 raw, Brier 0.0741, ECE 0.0201, recall@top-decile 0.171.
+- **Testing:** 36 new tests (70 total), all passing.
+- **Deliverables (per roadmap):** `ml/train.py`, `ml/evaluate.py`, metrics report, SHAP summary — all present.
+- **Known gap:** ROC-AUC sits below the published 0.64–0.69 range, which those papers obtain on random splits without patient-level deduplication. See `RUNNING_THE_PROJECT.md` §13 for the like-for-like comparison and the open question this raises.
+
 
 ## 7. Current Implementation Status
 
@@ -272,10 +313,10 @@ The five-plane target (data → model → serving → self-healing loop → obse
 | Data ingestion | ✅ Completed | 100% of its own scope |
 | Data validation (pandera) | ✅ Completed | 100% of its own scope |
 | Data cleaning | ✅ Completed | 100% of its own scope |
-| Feature engineering | ✅ Completed (built + tested) | Built, but **not yet exercised in a real training run** — that coupling happens in Week 3 |
+| Feature engineering | ✅ Completed (built + tested) | Fitted in the Week 3 training run; 249 transformed features |
 | Train/eval/future split | ✅ Completed | 100% of its own scope |
 | Data versioning (DVC) | ✅ Completed | 100% of Week 2 scope; no remote sharing/team setup (not required yet) |
-| Model training (LightGBM, calibration, SHAP) | ⬜ Not started | 0% — Week 3 |
+| Model training (LightGBM, calibration, SHAP) | ✅ Completed | Calibrated model in `models/`, metrics in `reports/metrics.json`, SHAP tables and figures in `reports/` |
 | Experiment tracking (MLflow) | ⬜ Not started | 0% — Week 4 |
 | API serving (FastAPI, JWT, audit rows) | ⬜ Not started | 0% — Week 5 |
 | Drift monitoring (Evidently) | ⬜ Not started | 0% — Week 6 |
@@ -372,9 +413,8 @@ There is currently no request flow, no frontend-backend communication, and no AI
 
 ## 11. Pending Features — NOT IMPLEMENTED
 
-Everything below is described only because it is planned in `project_docs/IMPLEMENTATION_ROADMAP.md`. **None of it exists in the repository today.** It is listed here purely so a new developer knows what is coming and doesn't go looking for it.
+Everything below is described only because it is planned in `project_docs/IMPLEMENTATION_ROADMAP.md`. **None of it exists in the repository today.** (Week 3 — the LightGBM model, isotonic calibration, SHAP explainability, and subgroup metrics — has since been implemented and is no longer listed.) It is listed here purely so a new developer knows what is coming and doesn't go looking for it.
 
-- **Week 3 — NOT IMPLEMENTED:** LightGBM model, isotonic calibration, SHAP explainability, subgroup metrics.
 - **Week 4 — NOT IMPLEMENTED:** MLflow tracking, model registry, champion/challenger/shadow aliases.
 - **Week 5 — NOT IMPLEMENTED:** FastAPI service, JWT authentication, per-request audit rows, any database schema/tables/migrations.
 - **Week 6 — NOT IMPLEMENTED:** Evidently drift monitoring, APScheduler worker, the seeded drift scenarios S1–S5.
@@ -393,7 +433,7 @@ If any other document (including AI-generated summaries) describes any of the ab
 
 - **Where to add new data-pipeline logic:** `ml/data/` — follow the existing pattern of one focused module per concern (schema, clean, features, split), composed by `build_dataset.py`.
 - **Where a future API will live:** `api/` (not yet created — create it when Week 5 starts, per `project_docs/ARCHITECTURE.md` §10).
-- **Where a future model training entry point will live:** `ml/train.py`, `ml/evaluate.py`, `ml/explain.py` (Week 3; not yet created).
+- **Where model code lives:** `ml/train.py`, `ml/evaluate.py`, `ml/explain.py`, configured by `ml/config.py` (Week 3; implemented). Changing any of these re-runs the DVC model stages — commit the regenerated `dvc.lock` alongside the change.
 - **Where new AI models/LLM clients will live:** `loop/narrate/` (Week 9; not yet created) — and must use `gemini-2.5-flash` per the project's mandatory constraint, with the offline-vs-cloud conflict (§9) resolved before writing that code.
 - **Where configuration will live:** `configs/` (policy versions, gate criteria — not yet created, Week 7+); environment variables should go in a gitignored `.env` with a committed `.env.example`, created when the first component actually needs one (do not create ahead of need).
 - **Branch conventions:** `main` is the only long-lived branch and must always be demoable — the roadmap's "Friday demo rule" (`project_docs/IMPLEMENTATION_ROADMAP.md`, Standing Rules). Work happens on short-lived branches named `week<N>/<topic>` (e.g. `week3/lightgbm-training`), or `fix/<topic>` for corrections outside the weekly cadence. Branches merge into `main` only with `ruff check .`, `ruff format --check .`, and `pytest -q` green; CI enforces the same three on every push and pull request. Delete the branch after merge.

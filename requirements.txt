@@ -5,9 +5,9 @@
 #
 #     pip install -r requirements.txt -c constraints.txt
 #
-# Week 1-2 dependencies only.
-# Later weeks add: lightgbm, shap, mlflow, fastapi, uvicorn, pyjwt, evidently,
-# apscheduler, streamlit, structlog, fpdf2 — introduced when their week starts.
+# Week 1-3 dependencies only.
+# Later weeks add: mlflow, fastapi, uvicorn, pyjwt, evidently, apscheduler,
+# streamlit, structlog, fpdf2 — introduced when their week starts.
 
 pandas>=2.2
 numpy>=1.26
@@ -20,3 +20,9 @@ ucimlrepo>=0.0.7
 pytest>=8.3
 ruff>=0.6
 pre-commit>=3.8
+
+# Week 3 — model, calibration, explainability
+lightgbm>=4.7
+shap>=0.46
+matplotlib>=3.9
+joblib>=1.4

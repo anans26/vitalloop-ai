@@ -1,0 +1,174 @@
+{
+  "evaluation_slice": "datasets/processed/eval_frozen.csv",
+  "eval_rows": 10498,
+  "target": "readmitted_30d",
+  "positive_rate": 0.081349,
+  "inference_model": "calibrated",
+  "raw": {
+    "roc_auc": 0.599571,
+    "average_precision": 0.125288,
+    "brier_score": 0.074265,
+    "log_loss": 0.27906,
+    "expected_calibration_error": 0.018884,
+    "recall_at_top_decile": 0.17096,
+    "positive_rate": 0.081349,
+    "counts_at_default_threshold": {
+      "threshold": 0.5,
+      "true_negatives": 9644,
+      "false_positives": 0,
+      "false_negatives": 854,
+      "true_positives": 0,
+      "predicted_positive_rate": 0.0,
+      "precision": 0.0,
+      "recall": 0.0
+    },
+    "counts_at_top_decile_threshold": {
+      "threshold": 0.145543,
+      "true_negatives": 8740,
+      "false_positives": 904,
+      "false_negatives": 708,
+      "true_positives": 146,
+      "predicted_positive_rate": 0.100019,
+      "precision": 0.139048,
+      "recall": 0.17096
+    }
+  },
+  "calibrated": {
+    "roc_auc": 0.602418,
+    "average_precision": 0.130072,
+    "brier_score": 0.074107,
+    "log_loss": 0.278678,
+    "expected_calibration_error": 0.02006,
+    "recall_at_top_decile": 0.17096,
+    "positive_rate": 0.081349,
+    "counts_at_default_threshold": {
+      "threshold": 0.5,
+      "true_negatives": 9643,
+      "false_positives": 1,
+      "false_negatives": 853,
+      "true_positives": 1,
+      "predicted_positive_rate": 0.000191,
+      "precision": 0.5,
+      "recall": 0.001171
+    },
+    "counts_at_top_decile_threshold": {
+      "threshold": 0.139165,
+      "true_negatives": 8740,
+      "false_positives": 904,
+      "false_negatives": 708,
+      "true_positives": 146,
+      "predicted_positive_rate": 0.100019,
+      "precision": 0.139048,
+      "recall": 0.17096
+    }
+  },
+  "calibration_effect": {
+    "brier_delta": -0.000158,
+    "log_loss_delta": -0.000382,
+    "ece_delta": 0.001176,
+    "roc_auc_delta": 0.002847
+  },
+  "subgroups_calibrated": {
+    "age": {
+      "[0-10)": {
+        "count": 2,
+        "positive_rate": 0.0,
+        "roc_auc": null
+      },
+      "[10-20)": {
+        "count": 38,
+        "positive_rate": 0.131579,
+        "roc_auc": 0.424242
+      },
+      "[20-30)": {
+        "count": 156,
+        "positive_rate": 0.076923,
+        "roc_auc": 0.738426
+      },
+      "[30-40)": {
+        "count": 356,
+        "positive_rate": 0.050562,
+        "roc_auc": 0.707758
+      },
+      "[40-50)": {
+        "count": 1043,
+        "positive_rate": 0.066155,
+        "roc_auc": 0.598198
+      },
+      "[50-60)": {
+        "count": 1789,
+        "positive_rate": 0.064841,
+        "roc_auc": 0.615186
+      },
+      "[60-70)": {
+        "count": 2356,
+        "positive_rate": 0.08107,
+        "roc_auc": 0.617693
+      },
+      "[70-80)": {
+        "count": 2600,
+        "positive_rate": 0.091538,
+        "roc_auc": 0.572817
+      },
+      "[80-90)": {
+        "count": 1837,
+        "positive_rate": 0.093631,
+        "roc_auc": 0.541244
+      },
+      "[90-100)": {
+        "count": 321,
+        "positive_rate": 0.102804,
+        "roc_auc": 0.467698
+      }
+    },
+    "gender": {
+      "Female": {
+        "count": 5493,
+        "positive_rate": 0.082104,
+        "roc_auc": 0.596272
+      },
+      "Male": {
+        "count": 5003,
+        "positive_rate": 0.080552,
+        "roc_auc": 0.60925
+      },
+      "Unknown/Invalid": {
+        "count": 2,
+        "positive_rate": 0.0,
+        "roc_auc": null
+      }
+    },
+    "race": {
+      "AfricanAmerican": {
+        "count": 1149,
+        "positive_rate": 0.066144,
+        "roc_auc": 0.573411
+      },
+      "Asian": {
+        "count": 60,
+        "positive_rate": 0.05,
+        "roc_auc": 0.730994
+      },
+      "Caucasian": {
+        "count": 8560,
+        "positive_rate": 0.085164,
+        "roc_auc": 0.600433
+      },
+      "Hispanic": {
+        "count": 197,
+        "positive_rate": 0.076142,
+        "roc_auc": 0.718132
+      },
+      "Other": {
+        "count": 158,
+        "positive_rate": 0.031646,
+        "roc_auc": 0.533333
+      },
+      "nan": {
+        "count": 374,
+        "positive_rate": 0.069519,
+        "roc_auc": 0.608422
+      }
+    }
+  }
+}

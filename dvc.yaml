@@ -11,3 +11,43 @@ stages:
       - datasets/processed/train.csv
       - datasets/processed/eval_frozen.csv
       - datasets/processed/future_stream.csv
+
+  train_model:
+    cmd: python -m ml.train
+    deps:
+      - datasets/processed/train.csv
+      - datasets/processed/eval_frozen.csv
+      - ml/config.py
+      - ml/train.py
+      - ml/data/clean.py
+      - ml/data/features.py
+      - ml/data/icd9.py
+    outs:
+      - models/readmission_model.joblib
+      - models/model_metadata.json
+
+  evaluate_model:
+    cmd: python -m ml.evaluate
+    deps:
+      - datasets/processed/eval_frozen.csv
+      - models/readmission_model.joblib
+      - ml/config.py
+      - ml/evaluate.py
+    outs:
+      - reports/reliability_curve.csv
+      - reports/figures/calibration_curve.png
+    metrics:
+      - reports/metrics.json:
+          cache: false
+
+  explain_model:
+    cmd: python -m ml.explain
+    deps:
+      - datasets/processed/eval_frozen.csv
+      - models/readmission_model.joblib
+      - ml/config.py
+      - ml/explain.py
+    outs:
+      - reports/shap_global_importance.csv
+      - reports/shap_local_example.json
+      - reports/figures/shap_summary.png

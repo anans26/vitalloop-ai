@@ -36,3 +36,107 @@ stages:
       hash: md5
       md5: ebbfae6002203ba5e60ce9647b5e9a92
       size: 9031647
+  train_model:
+    cmd: python -m ml.train
+    deps:
+    - path: datasets/processed/eval_frozen.csv
+      hash: md5
+      md5: cc236eb77449ad46244f45527eccc8c5
+      size: 1887422
+    - path: datasets/processed/train.csv
+      hash: md5
+      md5: ebbfae6002203ba5e60ce9647b5e9a92
+      size: 9031647
+    - path: ml/config.py
+      hash: md5
+      md5: 9d011dd76b2b2414fe510ed1ec267c6a
+      size: 3257
+    - path: ml/data/clean.py
+      hash: md5
+      md5: 957ce385ad25a380f8345ac72a67ee63
+      size: 2855
+    - path: ml/data/features.py
+      hash: md5
+      md5: ddce7e990b473f479be1bcd782def556
+      size: 5561
+    - path: ml/data/icd9.py
+      hash: md5
+      md5: 595fb2b4bff0802fdf6370037d13f65c
+      size: 1661
+    - path: ml/train.py
+      hash: md5
+      md5: b5f92b3749896edaaf2e47cfccd55409
+      size: 7736
+    outs:
+    - path: models/model_metadata.json
+      hash: md5
+      md5: 4d597876026ca1c9aa7e784091ef3f5a
+      size: 1377
+    - path: models/readmission_model.joblib
+      hash: md5
+      md5: 850b25bd16230f260f72d1e72af14162
+      size: 1892001
+  evaluate_model:
+    cmd: python -m ml.evaluate
+    deps:
+    - path: datasets/processed/eval_frozen.csv
+      hash: md5
+      md5: cc236eb77449ad46244f45527eccc8c5
+      size: 1887422
+    - path: ml/config.py
+      hash: md5
+      md5: 9d011dd76b2b2414fe510ed1ec267c6a
+      size: 3257
+    - path: ml/evaluate.py
+      hash: md5
+      md5: d64f5060ba1d7f8a440eafad6a5a8dd8
+      size: 9932
+    - path: models/readmission_model.joblib
+      hash: md5
+      md5: 850b25bd16230f260f72d1e72af14162
+      size: 1892001
+    outs:
+    - path: reports/figures/calibration_curve.png
+      hash: md5
+      md5: f6e5ff99e0bedcbc93e549b8e5dde0c0
+      size: 55132
+    - path: reports/metrics.json
+      hash: md5
+      md5: de8c72708373f61d5e4a81e186c7a15f
+      size: 4167
+    - path: reports/reliability_curve.csv
+      hash: md5
+      md5: 9571722fe45632ed5e6418df6f8e33a2
+      size: 670
+  explain_model:
+    cmd: python -m ml.explain
+    deps:
+    - path: datasets/processed/eval_frozen.csv
+      hash: md5
+      md5: cc236eb77449ad46244f45527eccc8c5
+      size: 1887422
+    - path: ml/config.py
+      hash: md5
+      md5: 9d011dd76b2b2414fe510ed1ec267c6a
+      size: 3257
+    - path: ml/explain.py
+      hash: md5
+      md5: 4d7df3fc6aba52af0ce54771bc12dbd9
+      size: 7195
+    - path: models/readmission_model.joblib
+      hash: md5
+      md5: 850b25bd16230f260f72d1e72af14162
+      size: 1892001
+    outs:
+    - path: reports/figures/shap_summary.png
+      hash: md5
+      md5: b38a6a31ca667a4e89c0e724701abe53
+      size: 66764
+    - path: reports/shap_global_importance.csv
+      hash: md5
+      md5: 010b146eb9a02b81279bfac053776cfe
+      size: 14508
+    - path: reports/shap_local_example.json
+      hash: md5
+      md5: a1046ca44a7f0082cf67e21c5f901ca9
+      size: 2481

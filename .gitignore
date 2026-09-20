@@ -118,5 +118,12 @@ datasets/processed/*
 .dvc/cache
 .dvc/tmp
 
+# Week 3 model + report artifacts -- produced by DVC stages, not source-controlled.
+# reports/metrics.json is the exception: it is a DVC metric with cache: false, so
+# it stays in git and shows up as a reviewable diff when model quality moves.
+models/
+reports/*
+!reports/metrics.json
+
 # DVC local remote (this machine's cache mirror, not source-controlled)
 dvc-storage/
