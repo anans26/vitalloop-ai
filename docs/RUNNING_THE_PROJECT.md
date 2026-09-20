@@ -1,7 +1,7 @@
 # Running the Project — VitalLoop 2.0
 
-> **Milestone covered by this document: Week 4 of the 12-week roadmap.**
-> This document describes only what exists and runs in the repository today. Features planned for Week 5 onward (the API, monitoring, the Decision Engine, the dashboard, LLM narration) are **not implemented** and are not covered here — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full pending list.
+> **Milestone covered by this document: Week 5 of the 12-week roadmap.**
+> This document describes only what exists and runs in the repository today. Features planned for Week 6 onward (monitoring, the Decision Engine, the dashboard, LLM narration) are **not implemented** and are not covered here — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full pending list.
 
 ---
 
@@ -31,15 +31,19 @@ Only technologies **actually present in the repository today** are listed. Every
 | **DVC** | 3.67.1 | Hash-pinned data versioning without cloud credentials | Versions the raw and processed datasets via a **local** remote |
 | **ucimlrepo** | 0.0.7 | Official UCI ML Repository fetch helper | Downloads the primary dataset programmatically (`ml/data/ingest.py`) |
 | **Jupyter / ipykernel** | 1.0+ / 6.29+ | Interactive EDA | Runs `notebooks/01_eda.ipynb` |
-| **pytest** | 9.1.1 | Standard Python test runner | 93 tests: Week 2 data contract, Week 3 model/calibration/SHAP, and Week 4 tracking/registry contracts |
+| **pytest** | 9.1.1 | Standard Python test runner | 164 tests: Week 2 data contract, Week 3 model/calibration/SHAP, Week 4 tracking/registry, and Week 5 API/auth/audit contracts |
 | **ruff** | 0.16.8 | Fast combined linter/formatter | Enforced via `pyproject.toml`, the pre-commit hook, and CI (`check` + `format --check`) |
 | **pre-commit** | 4.6.2 | Runs ruff automatically on commit | Installed (`.git/hooks/pre-commit`); hook pinned to ruff v0.16.8 to match the pinned CLI |
 | **LightGBM** | 4.7.0 | Gradient boosting is the right tool for mid-size tabular clinical data (`project_docs/TECH_STACK.md`) | The Week 3 readmission classifier |
 | **SHAP** | 0.52.0 | Fast, exact attributions for tree models | Global + per-prediction explanations (`ml/explain.py`) |
 | **matplotlib** | 3.11.2 | Figure rendering | Calibration curve and SHAP summary PNGs |
 | **joblib** | 1.6.0 | sklearn's own serialisation format | Persists the fitted model bundle |
+| **FastAPI / uvicorn** | 0.141.1 / 0.53.0 | Typed request validation at the boundary and OpenAPI for free (`project_docs/TECH_STACK.md`) | The Week 5 serving API |
+| **PyJWT** | 2.14.0 | Stateless auth with `clinician`/`ops` role claims | Protects the prediction endpoint |
+| **SQLAlchemy / psycopg** | 2.0.54 / 3.3.6 | ORM + Postgres driver; parameterised by construction | The `predictions` audit table |
+| **structlog** | 26.1.0 | JSON logs carrying hashes, never PHI | Per-request serving logs |
 | **MLflow** | 3.16.1 | Tracking + registry + artifact store in one self-hostable service; aliases model promotion natively (`project_docs/TECH_STACK.md`) | Week 4 experiment tracking, lineage, and the model registry |
-| **Docker + Docker Compose** | 29.5.2 / v5.1.4 | Documented Windows-friction mitigation; offline-by-design | Runs `postgres:16` (empty — no application schema yet) and the Week 4 `mlflow` tracking server |
+| **Docker + Docker Compose** | 29.5.2 / v5.1.4 | Documented Windows-friction mitigation; offline-by-design | Runs `postgres:16` (now holding the `predictions` audit table), the Week 4 `mlflow` tracking server, and the Week 5 `api` service |
 | **Git** | 2.53.0 | Version control | Repository initialized; `origin` configured; Week 1–2 history committed |
 | **Node.js** | 24.14.0 | Pre-existing in the repo before this build | Used *only* by `project_docs/build_pdf.mjs` to render the planning-doc PDF; unrelated to the application and not required to run anything in this document |
 
@@ -407,6 +411,138 @@ Compose service: every tracking test builds a throwaway SQLite store under
 requires a database backend. Just run `pytest -q` — no `MLFLOW_TRACKING_URI`, no
 container, no network.
 
+### 9.3 The Week 5 serving API
+
+An authenticated FastAPI service that scores one encounter and writes an audit
+row for every prediction.
+
+**Start the dependencies, then the API:**
+
+```bash
+cd docker && docker compose up -d postgres mlflow && cd ..
+
+# The API runs in Compose too:
+cd docker && docker compose up -d api && cd ..        # http://localhost:8000/docs
+
+# ...or locally against the same containers, which is handier while developing:
+set -a; . docker/.env; set +a
+export POSTGRES_HOST=localhost VITALLOOP_MLFLOW_TRACKING_URI=http://localhost:5000
+uvicorn api.main:app --host 127.0.0.1 --port 8000
+```
+
+**Configuration.** Everything comes from the environment; `docker/.env.example`
+lists the variables and `docker/.env` (gitignored) holds the real values.
+
+| Variable | Purpose |
+|---|---|
+| `VITALLOOP_JWT_SECRET` | **Required, no default.** An unset secret fails startup rather than falling back to a value in the repository. Generate with `python -c "import secrets; print(secrets.token_urlsafe(48))"` |
+| `VITALLOOP_JWT_ALGORITHM` / `VITALLOOP_JWT_EXPIRY_MINUTES` | Defaults `HS256` / `30` |
+| `VITALLOOP_MODEL_SOURCE` | `mlflow` (default) loads the registered champion by alias; `local` loads the DVC-tracked joblib for offline work |
+| `VITALLOOP_REGISTERED_MODEL_NAME` / `VITALLOOP_MODEL_ALIAS` | `vitalloop-readmission` / `champion` |
+| `POSTGRES_*` | Compose the audit database URL, or set `VITALLOOP_DATABASE_URL` directly |
+
+**Get a development JWT:**
+
+```bash
+python -m scripts.issue_dev_token --subject dr-synthetic --role clinician
+```
+
+Roles are `clinician` and `ops`, per `TECH_STACK.md`. Both may predict; the
+`ops`-only endpoints arrive with the Week 9 approval flow.
+
+**Call the endpoint** (the body below is synthetic, not a real patient):
+
+```bash
+curl -X POST http://localhost:8000/predict   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json"   -d '{"time_in_hospital":5,"num_lab_procedures":44,"num_procedures":1,
+       "num_medications":18,"number_outpatient":0,"number_emergency":1,
+       "number_inpatient":2,"number_diagnoses":9,"admission_source_id":7,
+       "race":"Caucasian","gender":"Female","age":"[60-70)","payer_code":"MC",
+       "medical_specialty":"InternalMedicine","A1Cresult":">8","change":"Ch",
+       "diabetesMed":"Yes","diag_1":"428","diag_2":"250.83","diag_3":"401",
+       "insulin":"Up","metformin":"Steady"}'
+```
+
+```json
+{
+  "request_id": "7cde91a2-66a4-471c-8787-fffb7d784fdd",
+  "readmission_probability": 0.186189,
+  "predicted_class": 0,
+  "decision_threshold": 0.5,
+  "model_name": "vitalloop-readmission",
+  "model_version": "1",
+  "data_version": "ebbfae6002203ba5e60ce9647b5e9a92",
+  "top_factors": [
+    {"feature": "num__number_inpatient", "contribution": 0.499293},
+    {"feature": "num__service_utilization", "contribution": 0.061021},
+    {"feature": "num__number_diagnoses", "contribution": 0.044287}
+  ]
+}
+```
+
+The request body carries **44 fields** -- exactly what the feature pipeline
+consumes. Medication fields default to `"No"`, so only the ones that differ need
+sending. Two columns present in the processed data are deliberately not part of
+the contract: `admission_type_id` and `discharge_disposition_id` are used during
+cleaning but never reach the model. Identifiers are not accepted at all, and
+unknown fields are rejected.
+
+**Model loading and version behaviour.** The model is loaded **once at startup**
+and reused; nothing trains at request time. `mlflow` mode resolves
+`models:/vitalloop-readmission@champion` -- an explicit alias, never "latest", so
+the served model changes only when somebody moves the alias. The served version
+appears in every response and every audit row. If the model cannot be loaded the
+service still starts, `/ready` reports `model_loaded: false`, and `/predict`
+returns 503.
+
+**Health and readiness.** Neither requires authentication.
+
+| Endpoint | Meaning |
+|---|---|
+| `GET /health` | The process is up. Returns `{"status":"ok","service":"vitalloop-api"}` and nothing else |
+| `GET /ready` | This instance can serve: model loaded **and** audit database reachable. 200 when ready, 503 otherwise |
+
+**The audit table.** One row per scored request, in `predictions` -- the first of
+the five tables in `ARCHITECTURE.md` §4.6. It is append-only in application code:
+nothing in this repository updates or deletes a row.
+
+| Column | Contents |
+|---|---|
+| `id`, `request_id`, `ts` | Row id, the client-facing audit id (also returned), timestamp |
+| `caller`, `caller_role` | Identity from the **verified token**, never from the body |
+| `model_name`, `model_version`, `model_source`, `data_version` | What scored it, and the DVC hash of the training data |
+| `input_hash` | SHA-256 of the request body |
+| `risk_score`, `predicted_class`, `decision_threshold`, `top_shap` | The result and its top factors |
+| `status`, `error_category`, `latency_ms` | How it went |
+
+**What is not stored:** the request body. §3.6 notes the hash "allows later
+verification without storing the record twice", so the audit trail never becomes
+a second copy of the clinical record. `top_shap` holds feature *names* and
+contributions, not the encounter's values. structlog output is restricted to the
+request id, caller, input hash, model version, status and latency -- no field
+value, no score, no token.
+
+Auth failures and validation failures are logged but produce no audit row: the
+table records predictions the model actually made, and a request rejected at the
+boundary never reached it.
+
+**Audit failure is fail-closed.** If the row cannot be written, the caller gets
+`503` and **no score**. A prediction reaching a clinician with no audit trail is
+exactly the silent, unreviewable event this project exists to prevent, so the
+audit write is part of serving rather than a best-effort side effect. The same
+applies when the model itself errors: the attempt is recorded, and the response
+is a 503 rather than a number.
+
+**OpenAPI** is live at `http://localhost:8000/docs`, including the bearer-token
+requirement and both schemas.
+
+**Running the API tests** needs no database, no MLflow server, and no model
+artifact -- the fixtures build a small model and point the audit trail at a
+temporary SQLite file:
+
+```bash
+pytest -q tests/test_api_auth.py tests/test_api_predict.py          tests/test_api_audit.py tests/test_api_ops.py
+```
+
 ---
 
 ## 10. Testing the Project
@@ -437,7 +573,7 @@ print('No patient leakage across splits: OK')
 
 **How to verify AI integration:** not applicable — no AI/LLM integration exists yet (§7).
 
-**Expected successful state at Week 4:** `pytest` reports 93 passed (73 passed / 20 skipped if the datasets and model artifacts have not been built), `ruff check .` reports clean, `dvc repro` reports "up to date," and the three processed CSVs exist with disjoint `patient_nbr` sets summing to 69,990 rows.
+**Expected successful state at Week 5:** `pytest` reports 164 passed (144 passed / 20 skipped if the datasets and model artifacts have not been built), `ruff check .` reports clean, `dvc repro` reports "up to date," and the three processed CSVs exist with disjoint `patient_nbr` sets summing to 69,990 rows.
 
 ---
 
@@ -456,10 +592,11 @@ print('No patient leakage across splits: OK')
 
 ## 12. Current Limitations
 
-(Scoped strictly to Week 4 — this is not a roadmap of what's missing overall, just what a developer running the project today should know.)
+(Scoped strictly to Week 5 — this is not a roadmap of what's missing overall, just what a developer running the project today should know.)
 
-- **No backend, no frontend, no API.** Only the data pipeline (`ml/data/`) and the Week 3 model code (`ml/train.py`, `ml/evaluate.py`, `ml/explain.py`) exist; the model is a local artifact, not a served endpoint.
-- **No serving, and no governed promotion.** The model is registered in MLflow with a `champion` alias, but nothing *serves* it — the FastAPI service is Week 5. The `challenger` and `shadow` aliases are defined and unused; shadow deployment, the validation gate, and human approval arrive in Weeks 8–9, so the `champion` alias currently means "the first registered version", not "a model that passed a gate".
+- **No frontend.** The Streamlit dashboard is Week 10; the API's OpenAPI page at `/docs` is the only interactive surface.
+- **No governed promotion, and no shadow scoring.** The API serves the `champion` alias, but `challenger` and `shadow` remain unused: shadow dual-scoring is Week 9 middleware, and the validation gate and human approval arrive in Weeks 8–9. `champion` still means "the first registered version", not "a model that passed a gate".
+- **Serving latency is above target.** A warm `/predict` takes roughly 350 ms against the roadmap's < 200 ms goal; per-request SHAP dominates. The roadmap's own mitigations (batching, a cached explainer path) are not implemented.
 - **No database schema.** Postgres runs but is empty; nothing writes to it yet.
 - **No monitoring, no Decision Engine, no gate, no shadow deployment, no dashboard.** All Week 6+.
 - **No LLM/Gemini integration exists yet**, and the offline-LLM-vs-Gemini-mandate conflict (§7) is unresolved.
@@ -471,7 +608,7 @@ print('No patient leakage across splits: OK')
 
 ## 13. Current Project Status
 
-**Completed (Week 1 + Week 2 + Week 3 + Week 4 exit criteria):**
+**Completed (Week 1 + Week 2 + Week 3 + Week 4 + Week 5 exit criteria):**
 - Repo scaffold, ruff + pre-commit + basic CI (lint + test) configuration
 - Docker Compose skeleton running PostgreSQL 16 (empty)
 - UCI Diabetes 130-US dataset downloaded and verified (101,766 × 50 columns)
@@ -489,9 +626,10 @@ print('No patient leakage across splits: OK')
 - `dvc repro` now runs four stages and is byte-reproducible end to end
 - `ml/tracking.py` + `ml/registry.py` — MLflow tracking with git/DVC lineage, artifact logging, and the alias audit trail
 - MLflow service in Compose, UI on :5000; `vitalloop-readmission` v1 registered with the `champion` alias
-- 93/93 pytest tests passing; `ruff check .` and `ruff format --check .` clean
+- `api/` + `db/` — authenticated FastAPI serving with JWT role claims, fail-closed PostgreSQL audit rows, health/readiness, and OpenAPI docs
+- 164/164 pytest tests passing; `ruff check .` and `ruff format --check .` clean
 
-**In Progress:** nothing — Week 4 is a clean stopping point with no partially-built component.
+**In Progress:** nothing — Week 5 is a clean stopping point with no partially-built component.
 
 **Open question carried into Week 4:** the Week 3 model scores ~0.60 ROC-AUC,
 below the ~0.64–0.69 range `project_docs/DATASET_ANALYSIS.md` cites for this

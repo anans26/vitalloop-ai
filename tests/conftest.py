@@ -64,3 +64,94 @@ def make_synthetic_clean_df(n_rows: int = 300, seed: int = 7) -> pd.DataFrame:
 @pytest.fixture(scope="session")
 def synthetic_clean_df() -> pd.DataFrame:
     return make_synthetic_clean_df()
+
+
+# ---------------------------------------------------------------------------
+# Week 5 API fixtures
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def api_env(tmp_path, monkeypatch):
+    """Isolated serving configuration: throwaway secret and SQLite audit store.
+
+    SQLite rather than Postgres so the suite needs no database service; the real
+    Postgres path is exercised by the documented manual verification.
+    """
+    from api.config import get_settings
+    from db import session as db_session
+
+    monkeypatch.setenv("VITALLOOP_JWT_SECRET", "test-secret-not-a-real-key")
+    monkeypatch.setenv("VITALLOOP_JWT_EXPIRY_MINUTES", "30")
+    monkeypatch.setenv("VITALLOOP_MODEL_SOURCE", "local")
+    monkeypatch.setenv("VITALLOOP_DATABASE_URL", f"sqlite:///{(tmp_path / 'audit.db').as_posix()}")
+    get_settings.cache_clear()
+    db_session.reset_engine()
+    yield get_settings()
+    get_settings.cache_clear()
+    db_session.reset_engine()
+
+
+@pytest.fixture(scope="session")
+def synthetic_bundle(synthetic_clean_df):
+    """A ModelBundle built from a small model fitted on synthetic data.
+
+    Lets the prediction path be tested without the DVC-tracked artifact, which
+    does not exist in CI.
+    """
+    from api.model_loader import ModelBundle
+    from ml.data.features import split_features_target
+    from ml.explain import build_explainer, transformed_feature_names
+    from ml.train import build_base_model, build_calibrated_model
+
+    X, y = split_features_target(synthetic_clean_df)
+    base = build_base_model(n_estimators=5)
+    base.fit(X, y)
+    calibrated = build_calibrated_model(build_base_model(n_estimators=5))
+    calibrated.fit(X, y)
+
+    return ModelBundle(
+        calibrated_model=calibrated,
+        base_model=base,
+        explainer=build_explainer(base),
+        feature_names=transformed_feature_names(base),
+        model_name="test-readmission",
+        model_version="1",
+        model_source="local",
+        data_version="testdatahash",
+    )
+
+
+@pytest.fixture
+def api_client(api_env, synthetic_bundle):
+    """TestClient with lifespan run and the synthetic model injected."""
+    from fastapi.testclient import TestClient
+
+    from api.main import create_app
+
+    app = create_app()
+    with TestClient(app) as client:
+        app.state.model_bundle = synthetic_bundle
+        yield client
+
+
+@pytest.fixture
+def valid_payload(synthetic_clean_df) -> dict:
+    """A syntactically valid, entirely synthetic prediction request."""
+    from api.schemas import PredictionRequest
+
+    row = synthetic_clean_df.iloc[0].to_dict()
+    fields = {f.alias or name for name, f in PredictionRequest.model_fields.items()}
+    payload = {k: v for k, v in row.items() if k in fields}
+    for key, value in list(payload.items()):
+        if hasattr(value, "item"):
+            payload[key] = value.item()
+        if value is None or (isinstance(value, float) and value != value):
+            payload[key] = None
+    return payload
+
+
+@pytest.fixture
+def auth_headers(api_env) -> dict:
+    from api.auth import create_access_token
+
+    token = create_access_token("dr-synthetic", role="clinician", settings=api_env)
+    return {"Authorization": f"Bearer {token}"}

@@ -1,0 +1,34 @@
+# VitalLoop serving API.
+#
+# Installs from the project's own dependency files so the container resolves the
+# same versions a developer gets (requirements.txt + constraints.txt, see
+# RUNNING_THE_PROJECT.md §5.1). That keeps one source of truth at the cost of a
+# larger image than an API-only requirement list would produce.
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# libgomp is LightGBM's OpenMP runtime; the slim image does not ship it.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt constraints.txt ./
+RUN pip install --upgrade pip \
+    && pip install -r requirements.txt -c constraints.txt
+
+# Only what serving needs. Datasets, notebooks and reports stay out of the image.
+COPY api/ ./api/
+COPY db/ ./db/
+COPY ml/ ./ml/
+COPY scripts/ ./scripts/
+COPY dvc.lock ./dvc.lock
+
+# No secrets are baked in: every credential arrives through the environment.
+EXPOSE 8000
+
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]

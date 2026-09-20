@@ -9,6 +9,11 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vitalloop} -d ${POSTGRES_DB:-vitalloop}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   # Week 4: MLflow tracking + model registry.
   # SQLite backend rather than the Postgres service next door: the official
@@ -31,6 +36,41 @@ services:
       - "5000:5000"
     volumes:
       - mlflow-data:/mlflow
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; urllib.request.urlopen('http://localhost:5000/api/2.0/mlflow/experiments/search?max_results=1'); sys.exit(0)\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # Week 5: the authenticated serving API.
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    environment:
+      # Secrets arrive from docker/.env -- never from the image.
+      VITALLOOP_JWT_SECRET: ${VITALLOOP_JWT_SECRET:?VITALLOOP_JWT_SECRET must be set in docker/.env}
+      VITALLOOP_JWT_ALGORITHM: ${VITALLOOP_JWT_ALGORITHM:-HS256}
+      VITALLOOP_JWT_EXPIRY_MINUTES: ${VITALLOOP_JWT_EXPIRY_MINUTES:-30}
+      # Explicit alias, never "latest": the served model changes only when
+      # someone moves the alias.
+      VITALLOOP_MODEL_SOURCE: ${VITALLOOP_MODEL_SOURCE:-mlflow}
+      VITALLOOP_MLFLOW_TRACKING_URI: http://mlflow:5000
+      VITALLOOP_REGISTERED_MODEL_NAME: ${VITALLOOP_REGISTERED_MODEL_NAME:-vitalloop-readmission}
+      VITALLOOP_MODEL_ALIAS: ${VITALLOOP_MODEL_ALIAS:-champion}
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-vitalloop}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in docker/.env}
+      POSTGRES_DB: ${POSTGRES_DB:-vitalloop}
+    ports:
+      - "8000:8000"
+    # Wait for readiness, not merely for the containers to exist.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
 
 volumes:
   pgdata:

@@ -80,6 +80,9 @@ MLOPS PROJECT/
 │   └── PROJECT_REPOSITORY_GUIDE.md
 ├── node_modules/                   # Pre-existing; only `marked`, used by build_pdf.mjs
 ├── models/                          # Fitted model bundle + run metadata (DVC outputs, gitignored)
+├── api/                             # Week 5 FastAPI serving layer (auth, schemas, routers)
+├── db/                              # SQLAlchemy models + session handling for the audit trail
+├── scripts/                         # Operational helpers (dev JWT issuer)
 ├── mlflow/                          # Local MLflow store + alias audit log (gitignored)
 ├── reports/                         # Metrics, calibration table, SHAP tables, figures (DVC outputs;
 │                                   #   reports/metrics.json is a git-tracked DVC metric)
@@ -196,9 +199,25 @@ MLOPS PROJECT/
 - **Audit trail:** every alias move appends a row (alias, from/to version, run id, git commit, actor, reason, timestamp) to `mlflow/registry_audit.jsonl`. JSONL because the Postgres table that will hold these rows is Week 5; the record shape is chosen to migrate into one.
 - **Status:** implemented; `vitalloop-readmission` v1 registered with `champion`.
 
+### `api/` (Week 5)
+- **Purpose:** the authenticated serving layer. `main.py` builds the app and loads the model once at startup; `config.py` reads every setting from the environment; `auth.py` handles JWT and role claims; `schemas.py` holds the request/response contracts; `model_loader.py` resolves the served model; `audit.py` builds and persists the audit row; `logging_config.py` restricts what a log line may contain; `routers/` holds `/predict` and the health endpoints.
+- **Entry point:** `uvicorn api.main:app`.
+- **Design note:** the API never imports `ml.train`. It reads the feature contract from `ml.data.features` and SHAP from `ml.explain`, and loads the fitted artifact directly -- serving code has no business importing a module whose `main()` trains a model.
+- **Status:** implemented; a live authenticated request returns a calibrated score with top-3 factors and writes one Postgres audit row.
+
+### `db/` (Week 5)
+- **Purpose:** `models.py` defines the `predictions` audit table (the first of the five in ARCHITECTURE.md §4.6); `session.py` owns the engine, the per-request session, `init_db`, and the readiness check.
+- **Design note:** schema creation is `create_all`, not Alembic. One table exists today and the roadmap adds the rest week by week; a migration system would be infrastructure nobody is using. What matters now is that a fresh database reaches the current schema in one documented call.
+- **Append-only:** nothing in the repository issues UPDATE or DELETE against `predictions`.
+- **Status:** implemented and exercised against the real Postgres container.
+
+### `scripts/issue_dev_token.py`
+- **Purpose:** mints a development JWT signed with the same secret the API verifies with.
+- **Status:** implemented; tokens are printed to stdout and never written to disk.
+
 ### `docker/docker-compose.yml`
 - **Purpose:** local PostgreSQL 16 instance.
-- **Contains:** two services. `postgres` takes credentials from `docker/.env` (gitignored) via `${VAR}` substitution, with `docker/.env.example` as the committed template. `mlflow` (Week 4) runs the tracking server on :5000 with a SQLite backend and `--serve-artifacts`; it needs no credentials, so `.env.example` is unchanged. Each service has its own named volume.
+- **Contains:** three services. `postgres` takes credentials from `docker/.env` (gitignored) via `${VAR}` substitution, with `docker/.env.example` as the committed template. `mlflow` (Week 4) runs the tracking server on :5000 with a SQLite backend and `--serve-artifacts`. `api` (Week 5, built from `docker/Dockerfile.api`) serves on :8000 and waits on `service_healthy` for both dependencies rather than on start order. Secrets reach the API only through the environment, never the image.
 - **Status:** implemented and running; **empty** — no application connects to it yet.
 
 ### `dvc.yaml` / `dvc.lock`
@@ -206,7 +225,7 @@ MLOPS PROJECT/
 - **Status:** implemented; both files exist and are consistent with the current data.
 
 ### `tests/data/*.py`
-- **Purpose:** 93 tests across schema, clean, features, split, the built processed datasets, the Week 3 model/calibration/SHAP contracts, and the Week 4 tracking/registry contracts. The tracking tests use a temporary SQLite store, so no MLflow server is needed.
+- **Purpose:** 164 tests across the Week 2 data contract, the Week 3 model/calibration/SHAP contracts, the Week 4 tracking/registry contracts, and the Week 5 API contracts (auth, validation, prediction, audit, health, security). Tracking tests use a temporary SQLite store and API tests a temporary SQLite audit file, so neither an MLflow server nor Postgres is needed.
 - **The one worth calling out specifically:** `tests/data/test_split.py::test_split_produces_no_patient_overlap_across_any_pair_of_splits` — this is the exact unit test `project_docs/RISK_ANALYSIS.md` calls for ("killed by tests, not vigilance").
 - **Status:** all 34 pass. `tests/data/test_processed_datasets.py` asserts the data contract against the real 69,990-row processed output directly (no raw target column, zero patient overlap, 70/15/15, no leakage dispositions); it skips automatically when the datasets have not been built, so CI stays green without the data.
 
@@ -275,7 +294,7 @@ The five-plane target (data → model → serving → self-healing loop → obse
 
 ---
 
-## 6. Development Timeline (Weeks 1–4)
+## 6. Development Timeline (Weeks 1–5)
 
 ### Week 1 — Setup, EDA, Baseline
 
@@ -302,7 +321,7 @@ The five-plane target (data → model → serving → self-healing loop → obse
 - **Frontend work:** none (Week 10).
 - **Backend work:** the data pipeline itself is the "backend" work at this stage.
 - **AI/ML work:** none new (feature pipeline is ML-adjacent infrastructure, not a model).
-- **Testing:** 93 pytest tests, all passing; `ruff check .` and `ruff format --check .` clean.
+- **Testing:** 164 pytest tests, all passing; `ruff check .` and `ruff format --check .` clean.
 - **Deliverables (per roadmap, both met):** `dvc repro` rebuilds the hashed dataset deterministically; documented, tested split strategy.
 
 ---
@@ -334,6 +353,19 @@ The five-plane target (data → model → serving → self-healing loop → obse
 - **Deliverables (per roadmap):** registered champion v1, alias moves audited, MLflow UI reachable at :5000 — all present.
 
 
+### Week 5 — Serving API
+
+- **Objectives:** secure, audited inference.
+- **Completed work:** FastAPI `/predict` with Pydantic v2 contracts over the real 44-field inference feature set; JWT auth with `clinician`/`ops` role claims; one append-only Postgres audit row per prediction (payload hashed, never stored); `/health` and `/ready`; structlog JSON logging restricted to identifiers and hashes; an `api` service in Compose that waits on dependency health.
+- **Files created:** `api/` (9 modules), `db/` (3 modules), `scripts/issue_dev_token.py`, `docker/Dockerfile.api`, four API test modules.
+- **Modules completed:** serving, authentication, audit persistence.
+- **Database work:** the `predictions` table — the first of the five in ARCHITECTURE.md §4.6 — created via `init_db`.
+- **AI/ML work:** none. The Week 3 model is served unchanged, loaded by alias from the Week 4 registry.
+- **Testing:** 71 new tests (164 total), none requiring Postgres, MLflow or the model artifact.
+- **Deliverables (per roadmap):** OpenAPI docs live, audit rows visible in Postgres, auth tests green — all present.
+- **Known gap:** warm `/predict` latency is ~350 ms against the roadmap's < 200 ms target; per-request SHAP dominates.
+
+
 ## 7. Current Implementation Status
 
 | Area | Status | Approx. completion vs. full 12-week scope |
@@ -346,6 +378,7 @@ The five-plane target (data → model → serving → self-healing loop → obse
 | Data versioning (DVC) | ✅ Completed | 100% of Week 2 scope; no remote sharing/team setup (not required yet) |
 | Model training (LightGBM, calibration, SHAP) | ✅ Completed | Calibrated model in `models/`, metrics in `reports/metrics.json`, SHAP tables and figures in `reports/` |
 | MLflow tracking + registry | ✅ Completed | Tracked runs with git/DVC lineage; `vitalloop-readmission` v1 registered with the `champion` alias |
+| Serving API (FastAPI, JWT, audit) | ✅ Completed | `POST /predict` with role-claimed JWT auth, fail-closed Postgres audit rows, `/health` and `/ready` |
 | Experiment tracking (MLflow) | ⬜ Not started | 0% — Week 4 |
 | API serving (FastAPI, JWT, audit rows) | ⬜ Not started | 0% — Week 5 |
 | Drift monitoring (Evidently) | ⬜ Not started | 0% — Week 6 |
@@ -442,9 +475,8 @@ There is currently no request flow, no frontend-backend communication, and no AI
 
 ## 11. Pending Features — NOT IMPLEMENTED
 
-Everything below is described only because it is planned in `project_docs/IMPLEMENTATION_ROADMAP.md`. **None of it exists in the repository today.** (Weeks 3 and 4 — the LightGBM model, isotonic calibration, SHAP explainability, subgroup metrics, MLflow tracking and the model registry — have since been implemented and are no longer listed.) It is listed here purely so a new developer knows what is coming and doesn't go looking for it.
+Everything below is described only because it is planned in `project_docs/IMPLEMENTATION_ROADMAP.md`. **None of it exists in the repository today.** (Weeks 3–5 — the model, calibration, SHAP, MLflow tracking and registry, and the authenticated serving API with its Postgres audit trail — have since been implemented and are no longer listed.) It is listed here purely so a new developer knows what is coming and doesn't go looking for it.
 
-- **Week 5 — NOT IMPLEMENTED:** FastAPI service, JWT authentication, per-request audit rows, any database schema/tables/migrations.
 - **Week 6 — NOT IMPLEMENTED:** Evidently drift monitoring, APScheduler worker, the seeded drift scenarios S1–S5.
 - **Week 7 — NOT IMPLEMENTED:** the Decision Engine, the Decision Card schema/persistence, the confidence formula.
 - **Week 8 — NOT IMPLEMENTED:** the retrain pipeline, the validation gate.
@@ -460,7 +492,7 @@ If any other document (including AI-generated summaries) describes any of the ab
 ## 12. Repository Maintenance Guide
 
 - **Where to add new data-pipeline logic:** `ml/data/` — follow the existing pattern of one focused module per concern (schema, clean, features, split), composed by `build_dataset.py`.
-- **Where a future API will live:** `api/` (not yet created — create it when Week 5 starts, per `project_docs/ARCHITECTURE.md` §10).
+- **Where the API lives:** `api/` (Week 5; implemented), with database code in `db/`. New endpoints go in `api/routers/`; anything touching an alias or an audit row goes through the existing helpers rather than a new path.
 - **Where model code lives:** `ml/train.py`, `ml/evaluate.py`, `ml/explain.py`, configured by `ml/config.py` (Week 3; implemented). Changing any of these re-runs the DVC model stages — commit the regenerated `dvc.lock` alongside the change.
 - **Where tracking and registry code lives:** `ml/tracking.py` and `ml/registry.py` (Week 4; implemented). An alias must only ever move through `ml.registry.set_alias`, so the audit row cannot be skipped.
 - **Where new AI models/LLM clients will live:** `loop/narrate/` (Week 9; not yet created) — and must use `gemini-2.5-flash` per the project's mandatory constraint, with the offline-vs-cloud conflict (§9) resolved before writing that code.
