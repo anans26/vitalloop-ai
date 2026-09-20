@@ -2,6 +2,8 @@ import pandas as pd
 
 from ml.data.clean import (
     LEAKAGE_DISCHARGE_DISPOSITIONS,
+    RAW_TARGET_COLUMN,
+    TARGET_COLUMN,
     apply_missing_value_policy,
     binarize_target,
     clean,
@@ -56,3 +58,49 @@ def test_clean_end_to_end_removes_leakage_and_binarizes():
     assert df["patient_nbr"].is_unique
     assert "weight" not in df.columns
     assert "readmitted_30d" in df.columns
+
+
+def test_binarize_target_drops_the_raw_readmitted_column():
+    """readmitted_30d is a deterministic function of readmitted -- keeping both
+    would let any 'all columns except y' selection score perfectly."""
+    df = binarize_target(_sample_df())
+    assert RAW_TARGET_COLUMN not in df.columns
+    assert TARGET_COLUMN in df.columns
+
+
+def test_clean_output_contains_no_raw_target_column():
+    df = clean(_sample_df())
+    assert RAW_TARGET_COLUMN not in df.columns
+    assert TARGET_COLUMN in df.columns
+
+
+def test_deduplicate_is_invariant_to_input_row_order():
+    """The kept encounter must be the chronologically earliest one regardless of
+    the order rows arrive in -- not whichever row the source file listed first."""
+    df = _sample_df()
+    shuffled = df.iloc[::-1].reset_index(drop=True)
+
+    kept_natural = deduplicate_patients(df).sort_values("patient_nbr")
+    kept_shuffled = deduplicate_patients(shuffled).sort_values("patient_nbr")
+
+    assert set(kept_natural["encounter_id"]) == {1, 3, 4}
+    assert set(kept_shuffled["encounter_id"]) == {1, 3, 4}
+    pd.testing.assert_frame_equal(
+        kept_natural.reset_index(drop=True), kept_shuffled.reset_index(drop=True)
+    )
+
+
+def test_deduplicate_keeps_lowest_encounter_id_when_file_order_disagrees():
+    out_of_order = pd.DataFrame(
+        {
+            "encounter_id": [99, 7, 50],
+            "patient_nbr": [100, 100, 100],
+            "discharge_disposition_id": [1, 1, 1],
+            "weight": [None, None, None],
+            "payer_code": [None, None, None],
+            "medical_specialty": [None, None, None],
+            "readmitted": ["<30", "NO", ">30"],
+        }
+    )
+    kept = deduplicate_patients(out_of_order)
+    assert kept["encounter_id"].tolist() == [7]

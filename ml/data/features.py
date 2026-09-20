@@ -12,27 +12,56 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder
 
+from ml.data.clean import RAW_TARGET_COLUMN, TARGET_COLUMN
 from ml.data.icd9 import map_icd9_series_to_chapter
 
 MEDICATION_COLUMNS = [
-    "metformin", "repaglinide", "nateglinide", "chlorpropamide", "glimepiride",
-    "acetohexamide", "glipizide", "glyburide", "tolbutamide", "pioglitazone",
-    "rosiglitazone", "acarbose", "miglitol", "troglitazone", "tolazamide",
-    "examide", "citoglipton", "insulin", "glyburide-metformin",
-    "glipizide-metformin", "glimepiride-pioglitazone",
-    "metformin-rosiglitazone", "metformin-pioglitazone",
+    "metformin",
+    "repaglinide",
+    "nateglinide",
+    "chlorpropamide",
+    "glimepiride",
+    "acetohexamide",
+    "glipizide",
+    "glyburide",
+    "tolbutamide",
+    "pioglitazone",
+    "rosiglitazone",
+    "acarbose",
+    "miglitol",
+    "troglitazone",
+    "tolazamide",
+    "examide",
+    "citoglipton",
+    "insulin",
+    "glyburide-metformin",
+    "glipizide-metformin",
+    "glimepiride-pioglitazone",
+    "metformin-rosiglitazone",
+    "metformin-pioglitazone",
 ]
 
 AGE_BANDS = [f"[{i}-{i + 10})" for i in range(0, 100, 10)]
 
 # Admission-source risk grouping per the dataset's published IDs_mapping.csv.
 ADMISSION_SOURCE_GROUPS = {
-    1: "referral", 2: "referral", 3: "referral",
+    1: "referral",
+    2: "referral",
+    3: "referral",
     7: "emergency",
-    4: "transfer", 5: "transfer", 6: "transfer", 10: "transfer",
-    22: "transfer", 25: "transfer", 26: "transfer",
-    11: "delivery_birth", 12: "delivery_birth", 13: "delivery_birth",
-    14: "delivery_birth", 23: "delivery_birth", 24: "delivery_birth",
+    4: "transfer",
+    5: "transfer",
+    6: "transfer",
+    10: "transfer",
+    22: "transfer",
+    25: "transfer",
+    26: "transfer",
+    11: "delivery_birth",
+    12: "delivery_birth",
+    13: "delivery_birth",
+    14: "delivery_birth",
+    23: "delivery_birth",
+    24: "delivery_birth",
     8: "legal_other",
 }
 
@@ -68,15 +97,34 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):
 
 
 ENGINEERED_NUMERIC_COLUMNS = [
-    "time_in_hospital", "num_lab_procedures", "num_procedures", "num_medications",
-    "number_outpatient", "number_emergency", "number_inpatient", "number_diagnoses",
-    "service_utilization", "num_med_changes", "insulin_changed", "procedure_rate",
+    "time_in_hospital",
+    "num_lab_procedures",
+    "num_procedures",
+    "num_medications",
+    "number_outpatient",
+    "number_emergency",
+    "number_inpatient",
+    "number_diagnoses",
+    "service_utilization",
+    "num_med_changes",
+    "insulin_changed",
+    "procedure_rate",
 ]
 
 ENGINEERED_CATEGORICAL_COLUMNS = [
-    "race", "gender", "age", "payer_code", "medical_specialty",
-    "max_glu_serum", "A1Cresult", "change", "diabetesMed",
-    "diag_1_chapter", "diag_2_chapter", "diag_3_chapter", "admission_source_group",
+    "race",
+    "gender",
+    "age",
+    "payer_code",
+    "medical_specialty",
+    "max_glu_serum",
+    "A1Cresult",
+    "change",
+    "diabetesMed",
+    "diag_1_chapter",
+    "diag_2_chapter",
+    "diag_3_chapter",
+    "admission_source_group",
     *MEDICATION_COLUMNS,
 ]
 
@@ -120,3 +168,24 @@ def build_feature_pipeline() -> Pipeline:
             ("encode", encode_stage),
         ]
     )
+
+
+# Columns that are never features. Identifiers carry no signal and would leak
+# patient identity across splits; both target columns are excluded so that no
+# "everything except y" selection can hand the answer back to the model.
+ID_COLUMNS = ["encounter_id", "patient_nbr"]
+NON_FEATURE_COLUMNS = [*ID_COLUMNS, TARGET_COLUMN, RAW_TARGET_COLUMN]
+
+
+def split_features_target(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
+    """Explicit X/y separation -- the only supported way to build a training matrix.
+
+    Raises if the target is absent rather than silently returning an unlabelled
+    frame, and drops every non-feature column whether or not it is present.
+    """
+    if TARGET_COLUMN not in df.columns:
+        raise KeyError(f"{TARGET_COLUMN!r} not found; was ml.data.clean.clean() applied?")
+
+    y = df[TARGET_COLUMN]
+    X = df.drop(columns=[c for c in NON_FEATURE_COLUMNS if c in df.columns])
+    return X, y

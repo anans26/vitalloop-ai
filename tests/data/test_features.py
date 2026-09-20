@@ -1,6 +1,14 @@
 import pandas as pd
+import pytest
 
-from ml.data.features import MEDICATION_COLUMNS, build_feature_pipeline
+from ml.data.features import (
+    ENGINEERED_CATEGORICAL_COLUMNS,
+    ENGINEERED_NUMERIC_COLUMNS,
+    MEDICATION_COLUMNS,
+    NON_FEATURE_COLUMNS,
+    build_feature_pipeline,
+    split_features_target,
+)
 from ml.data.icd9 import map_icd9_series_to_chapter
 
 
@@ -62,3 +70,28 @@ def test_insulin_changed_flag_detects_up_down():
     out = FeatureEngineer().fit_transform(df)
     assert out.loc[0, "insulin_changed"] == 1
     assert out.loc[1, "insulin_changed"] == 0
+
+
+def test_split_features_target_excludes_ids_and_both_target_columns():
+    df = _sample_df(5)
+    df["encounter_id"] = range(5)
+    df["patient_nbr"] = range(100, 105)
+    df["readmitted_30d"] = [0, 1, 0, 1, 0]
+    df["readmitted"] = ["NO", "<30", "NO", "<30", ">30"]
+
+    X, y = split_features_target(df)
+
+    assert y.tolist() == [0, 1, 0, 1, 0]
+    for col in NON_FEATURE_COLUMNS:
+        assert col not in X.columns
+
+
+def test_split_features_target_raises_when_target_missing():
+    with pytest.raises(KeyError, match="readmitted_30d"):
+        split_features_target(_sample_df(3))
+
+
+def test_configured_pipeline_columns_never_include_a_target_column():
+    """Guards the ColumnTransformer itself, not just the caller."""
+    configured = set(ENGINEERED_NUMERIC_COLUMNS) | set(ENGINEERED_CATEGORICAL_COLUMNS)
+    assert configured.isdisjoint(set(NON_FEATURE_COLUMNS))

@@ -47,7 +47,7 @@ MLOPS PROJECT/
 │       ├── __init__.py
 │       ├── ingest.py                # Downloads the raw dataset from UCI
 │       ├── schema.py                # pandera validation schema
-│       ├── clean.py                 # Leakage removal, dedup, missing-value policy, target binarization
+│       ├── clean.py                 # Leakage removal, dedup, missing-value policy, target binarization + raw-target drop
 │       ├── icd9.py                  # ICD-9 code -> clinical chapter mapping
 │       ├── features.py              # The single sklearn Pipeline (train == serve transform)
 │       ├── split.py                 # Patient-level, time-sliced train/eval/future split
@@ -82,7 +82,8 @@ MLOPS PROJECT/
 ├── dvc.yaml                        # DVC pipeline definition (the `build_dataset` stage)
 ├── dvc.lock                        # DVC's record of exact input/output hashes for the last run
 ├── pyproject.toml                  # ruff + pytest configuration
-├── requirements.txt                # Week 1-2 Python dependencies only
+├── requirements.txt                # Week 1-2 direct dependencies (lower bounds)
+├── constraints.txt                 # Exact pinned versions incl. transitive deps (generated)
 └── .gitignore
 ```
 
@@ -112,6 +113,8 @@ MLOPS PROJECT/
 ### `ml/data/clean.py`
 - **Purpose:** applies the four Week 2 cleaning policy decisions.
 - **Contains:** `remove_leakage_discharges`, `deduplicate_patients`, `apply_missing_value_policy`, `binarize_target`, and `clean()` which composes all four in order.
+- **Target contract:** `binarize_target` derives `readmitted_30d` and **drops the raw `readmitted` column**. Keeping both would be target leakage — `readmitted_30d` is a deterministic function of `readmitted`, so any "every column except the target" feature selection would score perfectly. `ml/data/features.py::split_features_target` is the supported X/y split and additionally excludes identifier columns.
+- **Deduplication order:** `deduplicate_patients` sorts by `encounter_id` before `drop_duplicates(keep="first")`, so the retained encounter is the chronologically earliest one regardless of input row order. This reproduces the previous output exactly (verified: 0 of 71,518 patients affected) without depending on the UCI export's incidental row ordering.
 - **Dependencies:** `pandas`.
 - **Used by:** `ml/data/build_dataset.py`; unit-tested by `tests/data/test_clean.py`.
 - **Status:** implemented; on the real dataset, removes 2,423 leakage rows and dedups 101,766 → 69,990 rows.
@@ -161,21 +164,23 @@ MLOPS PROJECT/
 - **Status:** implemented; both files exist and are consistent with the current data.
 
 ### `tests/data/*.py`
-- **Purpose:** 16 tests total across schema, clean, features, and split.
+- **Purpose:** 34 tests across schema, clean, features, split, and the built processed datasets.
 - **The one worth calling out specifically:** `tests/data/test_split.py::test_split_produces_no_patient_overlap_across_any_pair_of_splits` — this is the exact unit test `project_docs/RISK_ANALYSIS.md` calls for ("killed by tests, not vigilance").
-- **Status:** all 16 pass; also independently re-verified against the real 69,990-row processed data (not just the synthetic fixtures used in the test file itself).
+- **Status:** all 34 pass. `tests/data/test_processed_datasets.py` asserts the data contract against the real 69,990-row processed output directly (no raw target column, zero patient overlap, 70/15/15, no leakage dispositions); it skips automatically when the datasets have not been built, so CI stays green without the data.
 
 ### `pyproject.toml`
 - **Purpose:** ruff configuration (line length 100, target Python 3.12, rule sets E/F/I/UP) and pytest configuration (`testpaths = ["tests"]`).
 - **Status:** implemented; `ruff check .` currently reports zero issues.
 
-### `requirements.txt`
-- **Purpose:** pinned minimum versions for Week 1–2 only. Explicitly comments that later-week dependencies (LightGBM, MLflow, FastAPI, Evidently, Streamlit, etc.) are deliberately absent until their week arrives.
+### `requirements.txt` / `constraints.txt`
+- **Purpose:** `requirements.txt` declares the direct dependencies (lower bounds, hand-maintained) for Week 1–2 only, and comments that later-week dependencies (LightGBM, MLflow, FastAPI, Evidently, Streamlit, etc.) are deliberately absent until their week arrives. `constraints.txt` pins the exact resolved versions of the full transitive set, so local and CI environments match.
+- **Usage:** `pip install -r requirements.txt -c constraints.txt`. Regeneration steps are documented in the `constraints.txt` header and in `RUNNING_THE_PROJECT.md` §5.1.
+- **Why constraints and not a lockfile:** a pip constraint pins a version only if something actually requires that package, so the Windows-captured set (which contains `pywin32`/`pywinpty`) works unchanged on `ubuntu-latest` CI.
 - **Status:** implemented; installs cleanly into a Python 3.12 venv.
 
 ### `.github/workflows/ci.yml`
-- **Purpose:** GitHub Actions job — checkout, set up Python 3.12, `pip install -r requirements.txt`, `ruff check .`, `pytest -q`.
-- **Status:** implemented; **not yet exercised by an actual push** (no commits/remote exist yet — see §7 Week 2 Summary).
+- **Purpose:** GitHub Actions job — checkout, set up Python 3.12, `pip install -r requirements.txt -c constraints.txt`, `ruff check .`, `ruff format --check .`, `pytest -q`.
+- **Status:** implemented; the same commands (`ruff check .`, `ruff format --check .`, `pytest -q`) pass locally, but the workflow has **not yet been observed running on GitHub**.
 
 ### Files that do **not** exist (and should not be assumed): `main.py`, `server.py`, `app.py`, any `index.tsx`/frontend component, any `.env`/`.env.example`, any `Dockerfile` beyond the Compose file, any `README.md` at the project root, any `db/` migration files. If any future document references these, treat that as describing planned, not current, state.
 
@@ -187,7 +192,7 @@ MLOPS PROJECT/
 |---|---|---|---|---|---|---|
 | `ml/data/ingest.py` | Acquire raw data | `ucimlrepo` | UCI repo (network) | `datasets/raw/diabetic_data.csv` | Done | None needed — one-shot |
 | `ml/data/schema.py` | Fail-fast validation | `pandera` | Raw dataframe | Validated dataframe or `SchemaErrors` | Done | Will also validate future mock-FHIR ingestion (Week 6+, not yet built) |
-| `ml/data/clean.py` | Leakage-safe cleaning | `pandas` | Validated dataframe | Cleaned dataframe + `readmitted_30d` target column | Done | Consumed unchanged by Week 3 training |
+| `ml/data/clean.py` | Leakage-safe cleaning | `pandas` | Validated dataframe | Cleaned dataframe with `readmitted_30d` target; raw `readmitted` dropped | Done | Consumed unchanged by Week 3 training |
 | `ml/data/icd9.py` | Diagnosis grouping | `pandas` | Raw ICD-9 code series | Chapter-label series | Done | — |
 | `ml/data/features.py` | Train==serve transform | `scikit-learn`, `icd9.py` | Cleaned dataframe | Encoded numeric matrix | Done, **not yet consumed by a model** | Week 3 will `fit` this alongside LightGBM training; Week 5's FastAPI service will `transform` with the *same fitted instance* at inference time |
 | `ml/data/split.py` | Leakage-free split | `pandas` | Cleaned, deduped dataframe | 3 dataframes (train/eval_frozen/future_stream) | Done | `future_stream` is reserved for the Week 6 seeded drift scenarios (not yet built) |
@@ -255,7 +260,7 @@ The five-plane target (data → model → serving → self-healing loop → obse
 - **Frontend work:** none (Week 10).
 - **Backend work:** the data pipeline itself is the "backend" work at this stage.
 - **AI/ML work:** none new (feature pipeline is ML-adjacent infrastructure, not a model).
-- **Testing:** 16 pytest tests, all passing; `ruff check .` clean.
+- **Testing:** 34 pytest tests, all passing; `ruff check .` and `ruff format --check .` clean.
 - **Deliverables (per roadmap, both met):** `dvc repro` rebuilds the hashed dataset deterministically; documented, tested split strategy.
 
 ---
@@ -345,7 +350,7 @@ There is currently no request flow, no frontend-backend communication, and no AI
 
 ### Feature: Schema-validated, leakage-free, patient-safe data cleaning
 - **Purpose:** prevent the two leakage traps this dataset is known for (expired/hospice discharges; duplicate patients) from ever reaching a model.
-- **Workflow:** raw → `validate_raw` → `clean` (leakage removal → dedup → missing-value policy → target binarization).
+- **Workflow:** raw → `validate_raw` → `clean` (leakage removal → chronological dedup → missing-value policy → target binarization with raw-target drop).
 - **Files involved:** `ml/data/schema.py`, `ml/data/clean.py`, tested by `tests/data/test_schema.py` and `tests/data/test_clean.py`.
 - **Status:** working; verified on the real dataset (69,990 rows survive cleaning from 101,766).
 - **Limitations:** the missing-value policy is currently only defined for `weight` (dropped) and `payer_code`/`medical_specialty` (category-filled) — no policy yet for any other column, since none needed one per the Week 1 EDA.
@@ -436,7 +441,7 @@ docker compose up -d                # (from docker/) start Postgres
 ## 14. Week 2 Summary Report
 
 **✓ What has been achieved:**
-A complete, tested, reproducible data foundation: dataset acquisition, schema validation, leakage-safe cleaning, single-path feature engineering, patient-level time-sliced splitting, and hash-pinned DVC versioning with a working local remote. A Week 1 baseline model (AUROC 0.6191) is documented and reproducible. 16/16 tests pass; linting is clean.
+A complete, tested, reproducible data foundation: dataset acquisition, schema validation, leakage-safe cleaning, single-path feature engineering, patient-level time-sliced splitting, and hash-pinned DVC versioning with a working local remote. A Week 1 baseline model (AUROC 0.6191) is documented and reproducible. 34/34 tests pass; linting and formatting are clean.
 
 **✓ What is operational:**
 `dvc repro` (idempotent), `dvc push`/`pull`, `pytest`, `ruff check .`, the executed EDA notebook, and a running (empty) PostgreSQL container.

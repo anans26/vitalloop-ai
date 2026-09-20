@@ -7,19 +7,35 @@ notebooks/01_eda.ipynb), not assumed from the docs.
 from pandera.pandas import Check, Column, DataFrameSchema
 
 MEDICATION_COLUMNS = [
-    "metformin", "repaglinide", "nateglinide", "chlorpropamide", "glimepiride",
-    "acetohexamide", "glipizide", "glyburide", "tolbutamide", "pioglitazone",
-    "rosiglitazone", "acarbose", "miglitol", "troglitazone", "tolazamide",
-    "examide", "citoglipton", "insulin", "glyburide-metformin",
-    "glipizide-metformin", "glimepiride-pioglitazone",
-    "metformin-rosiglitazone", "metformin-pioglitazone",
+    "metformin",
+    "repaglinide",
+    "nateglinide",
+    "chlorpropamide",
+    "glimepiride",
+    "acetohexamide",
+    "glipizide",
+    "glyburide",
+    "tolbutamide",
+    "pioglitazone",
+    "rosiglitazone",
+    "acarbose",
+    "miglitol",
+    "troglitazone",
+    "tolazamide",
+    "examide",
+    "citoglipton",
+    "insulin",
+    "glyburide-metformin",
+    "glipizide-metformin",
+    "glimepiride-pioglitazone",
+    "metformin-rosiglitazone",
+    "metformin-pioglitazone",
 ]
 
 MEDICATION_VALUES = {"No", "Steady", "Up", "Down"}
 
 _medication_fields = {
-    col: Column(str, Check.isin(MEDICATION_VALUES), nullable=True)
-    for col in MEDICATION_COLUMNS
+    col: Column(str, Check.isin(MEDICATION_VALUES), nullable=True) for col in MEDICATION_COLUMNS
 }
 
 raw_diabetes_schema = DataFrameSchema(

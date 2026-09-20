@@ -13,6 +13,15 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
-      - run: pip install -r requirements.txt
+          cache-dependency-path: |
+            requirements.txt
+            constraints.txt
+      # constraints.txt pins exact versions (incl. transitive deps) so CI
+      # resolves the same environment a developer gets locally.
+      - run: pip install -r requirements.txt -c constraints.txt
       - run: ruff check .
+      # Formatting is enforced here as well as in pre-commit: ml/data/*.py are
+      # DVC stage dependencies, so an unformatted file landing on main would
+      # change their hashes and invalidate dvc.lock.
+      - run: ruff format --check .
       - run: pytest -q

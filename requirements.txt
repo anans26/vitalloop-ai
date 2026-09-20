@@ -1,4 +1,11 @@
-# VitalLoop 2.0 — Week 1-2 dependencies only.
+# VitalLoop 2.0 — direct dependencies (WHAT the project needs).
+#
+# Exact versions, including transitive packages, live in constraints.txt.
+# Install both so your environment matches CI:
+#
+#     pip install -r requirements.txt -c constraints.txt
+#
+# Week 1-2 dependencies only.
 # Later weeks add: lightgbm, shap, mlflow, fastapi, uvicorn, pyjwt, evidently,
 # apscheduler, streamlit, structlog, fpdf2 — introduced when their week starts.
 

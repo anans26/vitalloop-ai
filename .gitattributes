@@ -14,6 +14,13 @@
 *.toml    text eol=lf
 *.dvc     text eol=lf
 dvc.lock  text eol=lf
+*.txt     text eol=lf
+# Notebooks are reformatted by the ruff-format pre-commit hook, so they need a
+# stable end-of-line policy too; otherwise the hook and autocrlf fight each other.
+*.ipynb   text eol=lf
+
+# ...including this file itself.
+.gitattributes text eol=lf
 
 # Binary assets must never be line-ending converted.
 *.pdf     binary
