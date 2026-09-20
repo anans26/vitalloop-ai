@@ -35,7 +35,7 @@ Only technologies **actually present in the repository today** are listed. Every
 | **ruff** | 0.16.8 | Fast combined linter/formatter | Enforced via `pyproject.toml`, the pre-commit hook, and CI (`check` + `format --check`) |
 | **pre-commit** | 4.6.2 | Runs ruff automatically on commit | Installed (`.git/hooks/pre-commit`); hook pinned to ruff v0.16.8 to match the pinned CLI |
 | **Docker + Docker Compose** | 29.5.2 / v5.1.4 | Documented Windows-friction mitigation; offline-by-design | Runs a single `postgres:16` container (empty — no application schema yet) |
-| **Git** | 2.53.0 | Version control | Repository initialized, **no commits made yet** |
+| **Git** | 2.53.0 | Version control | Repository initialized; `origin` configured; Week 1–2 history committed |
 | **Node.js** | 24.14.0 | Pre-existing in the repo before this build | Used *only* by `project_docs/build_pdf.mjs` to render the planning-doc PDF; unrelated to the application and not required to run anything in this document |
 
 **Backend / Frontend / AI Model / Database schema:** none exist yet. See §12 (Current Limitations).
@@ -75,9 +75,9 @@ Nothing else needs to be downloaded manually — all Python packages install via
 ## 5. Repository Setup
 
 ```bash
-# 1. Clone (adjust URL to your remote once one exists — see §13, no remote is configured yet)
-git clone <repository-url>
-cd "MLOPS PROJECT"
+# 1. Clone
+git clone https://github.com/anans26/vitalloop-ai.git
+cd vitalloop-ai
 
 # 2. Create and activate a Python 3.12 virtual environment
 py -3.12 -m venv .venv

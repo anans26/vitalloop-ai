@@ -182,7 +182,7 @@ MLOPS PROJECT/
 - **Purpose:** GitHub Actions job — checkout, set up Python 3.12, `pip install -r requirements.txt -c constraints.txt`, `ruff check .`, `ruff format --check .`, `pytest -q`.
 - **Status:** implemented; the same commands (`ruff check .`, `ruff format --check .`, `pytest -q`) pass locally, but the workflow has **not yet been observed running on GitHub**.
 
-### Files that do **not** exist (and should not be assumed): `main.py`, `server.py`, `app.py`, any `index.tsx`/frontend component, any `.env`/`.env.example`, any `Dockerfile` beyond the Compose file, any `README.md` at the project root, any `db/` migration files. If any future document references these, treat that as describing planned, not current, state.
+### Files that do **not** exist (and should not be assumed): `main.py`, `server.py`, `app.py`, any `index.tsx`/frontend component, any `Dockerfile` beyond the Compose file, any `README.md` at the project root, any `db/` migration files. (`docker/.env.example` **does** exist and is committed; the `docker/.env` it is copied to is gitignored and must never be committed.) If any future document references these, treat that as describing planned, not current, state.
 
 ---
 
@@ -238,7 +238,7 @@ The five-plane target (data → model → serving → self-healing loop → obse
 ### Week 1 — Setup, EDA, Baseline
 
 - **Objectives:** working environment; deep dataset understanding; an honest baseline number.
-- **Completed work:** repo scaffold (ruff, pre-commit, CI stub); Docker Compose skeleton (Postgres only); dataset downloaded and verified; EDA notebook executed; baseline model trained and evaluated.
+- **Completed work:** repo scaffold (ruff, pre-commit, CI stub); branch and commit conventions (documented in §12); Docker Compose skeleton (Postgres only); dataset downloaded and verified; EDA notebook executed; baseline model trained and evaluated.
 - **Files created:** `.gitignore`, `requirements.txt`, `pyproject.toml`, `.pre-commit-config.yaml`, `.github/workflows/ci.yml`, `docker/docker-compose.yml`, `ml/data/ingest.py`, `notebooks/01_eda.ipynb`.
 - **Modules completed:** dataset ingestion.
 - **APIs completed:** none (none planned for Week 1).
@@ -396,6 +396,8 @@ If any other document (including AI-generated summaries) describes any of the ab
 - **Where a future model training entry point will live:** `ml/train.py`, `ml/evaluate.py`, `ml/explain.py` (Week 3; not yet created).
 - **Where new AI models/LLM clients will live:** `loop/narrate/` (Week 9; not yet created) — and must use `gemini-2.5-flash` per the project's mandatory constraint, with the offline-vs-cloud conflict (§9) resolved before writing that code.
 - **Where configuration will live:** `configs/` (policy versions, gate criteria — not yet created, Week 7+); environment variables should go in a gitignored `.env` with a committed `.env.example`, created when the first component actually needs one (do not create ahead of need).
+- **Branch conventions:** `main` is the only long-lived branch and must always be demoable — the roadmap's "Friday demo rule" (`project_docs/IMPLEMENTATION_ROADMAP.md`, Standing Rules). Work happens on short-lived branches named `week<N>/<topic>` (e.g. `week3/lightgbm-training`), or `fix/<topic>` for corrections outside the weekly cadence. Branches merge into `main` only with `ruff check .`, `ruff format --check .`, and `pytest -q` green; CI enforces the same three on every push and pull request. Delete the branch after merge.
+- **Commit conventions:** Conventional-Commits style subject lines (`feat:`, `fix:`, `docs:`, `chore:`, `test:`), imperative mood, under ~72 characters, with a body explaining *why* rather than restating the diff. Commits that change `ml/data/schema.py`, `clean.py`, `split.py`, or `build_dataset.py` must include the regenerated `dvc.lock` in the **same** commit — those four files are DVC stage dependencies, so splitting them across commits leaves `main` in a state where `dvc status` is dirty on a fresh clone.
 - **Naming conventions observed so far:** `snake_case` for modules and functions, one module per single responsibility, test files mirror source files 1:1 (`ml/data/clean.py` ↔ `tests/data/test_clean.py`).
 - **Folder conventions:** mirror `project_docs/ARCHITECTURE.md` §10's target tree; do not create a folder before the week that needs it starts.
 - **Coding conventions:** enforced by `ruff` (line length 100, rule sets E/F/I/UP) via `pyproject.toml` and the pre-commit hook; run `ruff check .` before committing.
