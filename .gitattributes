@@ -1,0 +1,19 @@
+# Line-ending policy — required for reproducible DVC hashing.
+#
+# Git for Windows sets core.autocrlf=true in its system config, which checks
+# text files out with CRLF. DVC hashes dependency files byte-for-byte, so a
+# CRLF working tree yields different md5s than the LF content stored in git:
+# every `dvc repro` on Windows then reports the stage as changed and rewrites
+# dvc.lock, even when nothing was edited. Pinning LF for the file types that
+# participate in DVC hashing (and in CI) keeps those hashes stable on every
+# platform. These rules override core.autocrlf.
+
+*.py      text eol=lf
+*.yaml    text eol=lf
+*.yml     text eol=lf
+*.toml    text eol=lf
+*.dvc     text eol=lf
+dvc.lock  text eol=lf
+
+# Binary assets must never be line-ending converted.
+*.pdf     binary
