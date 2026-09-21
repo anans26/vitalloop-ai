@@ -1,0 +1,114 @@
+# policy-v1 -- the Decision Engine's rule table, as a reviewable artifact.
+#
+# ARCHITECTURE.md §3.8: "Every policy version is a tagged code artifact; the
+# Decision Card records which policy version produced it. Changing a threshold
+# is a reviewed pull request -- that *is* the governance story."
+#
+# So every number the engine decides with lives here, in one file, under version
+# control. `loop/engine/policy.py` loads and validates it; nothing in the engine
+# carries a threshold of its own. A change to this file is a diff a reviewer can
+# read, and `policy_version` on every emitted card says which version of it was
+# in force.
+#
+# PROJECT_DESIGN.md §10 puts `configs/policy-v*.yaml` in the tree for exactly
+# this. A new policy is a NEW FILE (policy-v2.yaml), never an edit to this one:
+# cards already emitted reference `policy-v1` and must stay re-derivable.
+
+version: policy-v1
+
+description: >-
+  Initial drift-response policy. Six rules, frozen (RISK_ANALYSIS.md §1:
+  "freeze policy-v1 at 6 rules; improvements become policy-v2").
+
+# ---------------------------------------------------------------------------
+# Thresholds
+# ---------------------------------------------------------------------------
+# These mirror the measurement thresholds Week 6 records on every drift_events
+# row (`policy_thresholds`). They are repeated here rather than imported,
+# because a policy must be able to read a window measured months ago under
+# whatever thresholds were in force then -- the engine compares what was
+# measured against what the policy says, and the two are separate facts.
+thresholds:
+  # A feature is "breaching" at or above this PSI.
+  psi_breach: 0.10
+  # A single feature at or above this PSI is severe on its own (rule 4).
+  psi_severe: 0.25
+  # Rule 3: how many consecutive windows the same features must breach.
+  consecutive_windows: 2
+  # Rule 2 applies to a first-window breach of at most this many features.
+  alert_only_max_features: 2
+  # Rule 4: dispositions split here. Below it, a retrain escalates to a human.
+  auto_proceed_confidence: 0.75
+  # Rule 5: matured-label AUROC drop, measured against launch, that forces a
+  # full retrain. No producer of matured-label evidence exists yet -- delayed
+  # label monitoring is later work (ARCHITECTURE.md §3.7) -- so this threshold
+  # is inert in Week 7 and the rule branch is exercised by unit tests only.
+  matured_auroc_drop: 0.03
+  # Rule 6: a retrain this recent downgrades a fresh retrain decision.
+  retrain_cooldown_days: 7
+  # Rule 6: retrains permitted per cooldown window.
+  retrain_budget: 1
+
+# ---------------------------------------------------------------------------
+# Confidence formula (ARCHITECTURE.md §3.8, PROJECT_DESIGN.md §4.3)
+# ---------------------------------------------------------------------------
+#   confidence = w1*severity + w2*breadth + w3*persistence + w4*evidence
+#     severity    = min(max_PSI / severity_scale, 1.0)
+#     breadth     = breaching features / monitored features
+#     persistence = min(consecutive breaching windows / persistence_scale, 1.0)
+#     evidence    = matured_labels if labels confirm degradation, else
+#                   leading_indicators
+confidence:
+  weights:
+    severity: 0.35
+    breadth: 0.20
+    persistence: 0.20
+    evidence: 0.25
+  severity_scale: 0.5
+  persistence_scale: 3
+  evidence:
+    matured_labels: 1.0
+    leading_indicators: 0.5
+
+# ---------------------------------------------------------------------------
+# Rule precedence
+# ---------------------------------------------------------------------------
+# The six rules in §3.8 are a table, not a sequence, and their conditions
+# overlap -- a window with PSI 0.30 on features that also breached last window
+# satisfies rules 3 and 4 at once. Turning the table into a function therefore
+# needs an order, and §3.8 does not state one. This is that ordering, written
+# down so it is reviewable rather than buried in an if-chain:
+#
+#   5 > 4 > 3 > 2 > 1, then 6 as a downgrade.
+#
+# The reading: strongest evidence wins. Rule 5 (confirmed performance
+# regression on matured labels) outranks leading indicators, which is
+# RESEARCH_NOVELTY.md C3's whole claim. Rule 4 (severe or prediction drift)
+# outranks rule 3 (persistent but mild), which outranks rule 2 (mild and new),
+# which outranks rule 1 (nothing). Rule 6 is phrased as a *downgrade* rather
+# than an action, so it applies last, to whatever the table selected.
+precedence: [5, 4, 3, 2, 1]
+
+# The §3.8 table does not cover every input: 3+ features breaching between 0.10
+# and 0.25 in their first window match no rule (rule 2 caps at 2 features, rule
+# 3 needs a second window, rule 4 needs 0.25 or prediction drift, rule 1 needs
+# no breach at all). Rather than let the engine fall through to silence on
+# evidence it has, an uncovered breach takes the table's weakest non-silent
+# action. This is a documented gap-filler, not a seventh rule: it selects no
+# action the table does not already contain, and it never retrains.
+uncovered_breach_action: ALERT_ONLY
+
+# ---------------------------------------------------------------------------
+# Acceptance criteria written into every card
+# ---------------------------------------------------------------------------
+# RESEARCH_NOVELTY.md C1: the card pins "the acceptance criteria the challenger
+# must meet **before** training starts". The values are the validation gate's
+# (ARCHITECTURE.md §3.12 / PROJECT_DESIGN.md §4.5); Week 7 only records them, so
+# a card cannot have its bar moved after the fact by a later gate change. The
+# gate that enforces them is Week 8.
+acceptance_criteria:
+  auroc_non_inferiority_margin: 0.005
+  recall_top_decile_min_ratio: 1.0
+  max_brier_increase: 0.005
+  max_ece: 0.05
+  max_subgroup_auroc_drop: 0.01

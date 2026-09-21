@@ -1,4 +1,4 @@
-# VitalLoop drift-monitoring worker (Week 6).
+# VitalLoop drift-monitoring and decision worker (Weeks 6-7).
 #
 # Same dependency files as the API image, for the same reason: one source of
 # truth for versions (requirements.txt + constraints.txt).
@@ -29,6 +29,9 @@ RUN pip install --upgrade pip \
 # and nothing else -- the worker starts no server and holds no JWT secret.
 COPY loop/ ./loop/
 COPY scenarios/ ./scenarios/
+# The versioned decision policies the engine reads. Small, source-controlled,
+# and part of what the worker is: a monitor without a policy cannot decide.
+COPY configs/ ./configs/
 COPY db/ ./db/
 COPY ml/ ./ml/
 COPY api/ ./api/

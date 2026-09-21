@@ -22,6 +22,13 @@ Configuration is environment-only, the same way the API is configured:
     VITALLOOP_MONITOR_INTERVAL_SECONDS  seconds between windows (default: 300)
     VITALLOOP_MONITOR_MAX_WINDOWS       stop after N windows (default: unlimited)
     VITALLOOP_MODEL_SOURCE              local | mlflow (default: local)
+    VITALLOOP_POLICY_VERSION            decision policy to apply (default: policy-v1)
+
+Week 7 adds the second half of ARCHITECTURE.md §5's `monitor` service -- "drift
+job + decision engine". Each tick measures a window, writes its `drift_events`
+row, and then decides what that window means, emitting one Decision Card. There
+is no second scheduler and no queue between the two halves: the worker owns
+both, which is what §4.7 specifies.
 """
 
 import os
@@ -33,6 +40,8 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from sqlalchemy.orm import Session
 
 from api.logging_config import configure_logging, get_logger
+from loop.engine.evaluate import candidate_data_version, evaluate_event
+from loop.engine.policy import DEFAULT_POLICY_VERSION, Policy, PolicyError, load_policy
 from loop.monitor.config import DRIFT_REPORTS_DIR, LIVE_SCENARIO, WINDOW_ROWS
 from loop.monitor.database import open_session
 from loop.monitor.persistence import record_window
@@ -68,6 +77,8 @@ class MonitorCycle:
         stream: pd.DataFrame | None = None,
         window_rows: int = WINDOW_ROWS,
         reports_dir: Path | None = DRIFT_REPORTS_DIR,
+        policy: Policy | None = None,
+        policy_version: str | None = DEFAULT_POLICY_VERSION,
     ):
         # Every collaborator is injectable so the cycle can be exercised without
         # a database service, a trained artifact or the dataset on disk.
@@ -84,6 +95,14 @@ class MonitorCycle:
         self.windows = iter_windows(stream, window_rows=window_rows, max_windows=max_windows)
         self.next_index = 0
 
+        # Week 7. A policy that will not load is fatal here rather than on the
+        # first tick: a monitor that silently stops deciding looks exactly like
+        # a monitor that found nothing to decide.
+        self.policy = policy
+        if self.policy is None and policy_version is not None:
+            self.policy = load_policy(policy_version)
+        self.candidate_data_version = candidate_data_version()
+
         logger.info(
             "monitor_ready",
             scenario=scenario,
@@ -91,6 +110,7 @@ class MonitorCycle:
             reference_rows=self.reference.rows,
             model_version=self.model.version,
             model_source=self.model.source,
+            policy_version=None if self.policy is None else self.policy.version,
         )
 
     @property
@@ -133,6 +153,45 @@ class MonitorCycle:
             prediction_drift=result.prediction_drift,
             report_uri=result.report_uri,
         )
+        self._decide(event)
+
+    def _decide(self, event) -> None:
+        """Week 7: what the window means, decided in this same worker.
+
+        ARCHITECTURE.md §5 gives the `monitor` service both jobs -- "drift job +
+        decision engine" -- and §4.7 repeats it, so the decision runs on the
+        same tick that produced the window rather than in a second scheduler.
+        The measurement is already committed by the time this runs, so a policy
+        failure loses the card, never the evidence.
+        """
+        if self.policy is None:
+            return
+        try:
+            card, written = evaluate_event(
+                self.session,
+                event,
+                self.policy,
+                data_version=self.candidate_data_version,
+            )
+        except Exception as error:
+            logger.error(
+                "decision_failed",
+                event_id=event.event_id,
+                policy_version=self.policy.version,
+                error_category=type(error).__name__,
+            )
+            return
+        logger.info(
+            "decision_card_emitted" if written else "decision_card_already_on_record",
+            card_id=card.card_id,
+            drift_event_id=card.trigger.drift_event_id,
+            policy_version=card.policy_version,
+            rule_id=card.rule_id,
+            action=card.action,
+            disposition=card.disposition,
+            confidence=card.confidence,
+            status=card.status,
+        )
 
     def close(self) -> None:
         self.session.close()
@@ -144,8 +203,13 @@ def main() -> int:
     scenario = os.environ.get("VITALLOOP_MONITOR_SCENARIO", LIVE_SCENARIO)
     interval = _int_env("VITALLOOP_MONITOR_INTERVAL_SECONDS", DEFAULT_INTERVAL_SECONDS)
     max_windows = _int_env("VITALLOOP_MONITOR_MAX_WINDOWS", None)
+    policy_version = os.environ.get("VITALLOOP_POLICY_VERSION", DEFAULT_POLICY_VERSION)
 
-    cycle = MonitorCycle(scenario, max_windows=max_windows)
+    try:
+        cycle = MonitorCycle(scenario, max_windows=max_windows, policy_version=policy_version)
+    except PolicyError as error:
+        logger.error("policy_unavailable", policy_version=policy_version, error=str(error))
+        return 1
     scheduler = BlockingScheduler(timezone="UTC")
     # The first window is measured immediately rather than one interval from
     # now, so `docker compose up` produces evidence without a wait.

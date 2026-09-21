@@ -148,3 +148,71 @@ def test_max_windows_caps_the_run(stream, model, reference, drift_db):
         reports_dir=None,
     )
     assert len(cycle.windows) == 1
+
+
+# ---------------------------------------------------------------------------
+# Week 7: the decision engine runs in this same worker
+# ---------------------------------------------------------------------------
+def test_a_tick_emits_one_decision_card_for_the_window_it_measured(cycle, drift_db):
+    """ARCHITECTURE.md §5 gives the `monitor` service both jobs, on one tick."""
+    from db.models import DecisionCard
+
+    cycle.tick()
+
+    events = _rows(drift_db)
+    cards = list(drift_db.scalars(select(DecisionCard)))
+    assert len(events) == len(cards) == 1
+    assert cards[0].drift_event_id == events[0].event_id
+    assert cards[0].policy_version == cycle.policy.version
+
+
+def test_the_worker_loads_the_policy_at_startup(cycle):
+    """A monitor that silently stopped deciding would look like a quiet stream."""
+    assert cycle.policy is not None
+    assert cycle.policy.version == "policy-v1"
+
+
+def test_a_quiet_window_still_produces_a_card(cycle, drift_db):
+    """Silence is a logged decision, not an absence -- WORKFLOW.md §4."""
+    from db.models import DecisionCard
+
+    cycle.tick()
+    card = drift_db.scalars(select(DecisionCard)).one()
+    assert card.action == "NO_OP"
+    assert card.status == "CLOSED"
+
+
+def test_a_failed_decision_does_not_lose_the_measurement(cycle, drift_db, monkeypatch):
+    """The window is committed before the policy runs, so evidence survives."""
+    import loop.monitor.worker as worker
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("policy blew up")
+
+    monkeypatch.setattr(worker, "evaluate_event", explode)
+    cycle.tick()
+
+    from db.models import DecisionCard
+
+    assert len(_rows(drift_db)) == 1
+    assert list(drift_db.scalars(select(DecisionCard))) == []
+
+
+def test_the_worker_can_run_without_a_policy(stream, model, reference, drift_db):
+    """Measurement never depends on the decision layer being configured."""
+    from db.models import DecisionCard
+
+    cycle = MonitorCycle(
+        "S5",
+        model=model,
+        reference=reference,
+        session=drift_db,
+        stream=stream.iloc[STREAM_ROWS // 2 :],
+        window_rows=WINDOW_ROWS,
+        reports_dir=None,
+        policy_version=None,
+    )
+    assert cycle.policy is None
+    cycle.tick()
+    assert len(_rows(drift_db)) == 1
+    assert list(drift_db.scalars(select(DecisionCard))) == []

@@ -60,6 +60,7 @@ colorama==0.4.6
 comm==0.2.3
 configobj==5.0.9
 contourpy==1.4.0
+coverage==7.16.1
 cryptography==50.0.1
 cycler==0.12.1
 databricks-sdk==0.140.0
@@ -220,6 +221,7 @@ pygtrie==2.6.2
 PyJWT==2.14.0
 pyparsing==3.3.2
 pytest==9.1.1
+pytest-cov==7.1.0
 python-dateutil==2.9.0.post0
 python-discovery==1.6.1
 python-dotenv==1.2.3

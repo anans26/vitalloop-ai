@@ -1,7 +1,7 @@
 # Running the Project — VitalLoop 2.0
 
-> **Milestone covered by this document: Week 6 of the 12-week roadmap.**
-> This document describes only what exists and runs in the repository today. Features planned for Week 7 onward (the Decision Engine, the retrain pipeline and gate, the dashboard, LLM narration) are **not implemented** and are not covered here — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full pending list.
+> **Milestone covered by this document: Week 7 of the 12-week roadmap.**
+> This document describes only what exists and runs in the repository today. Features planned for Week 8 onward (the retrain pipeline and validation gate, shadow deployment, the dashboard, LLM narration) are **not implemented** and are not covered here — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full pending list.
 
 ---
 
@@ -9,11 +9,11 @@
 
 **VitalLoop 2.0** is a self-healing MLOps system for predicting 30-day hospital readmission risk, designed around one principle: *deterministic code decides, an LLM only narrates, a human approves anything clinician-facing*. Full design intent lives in `project_docs/` (`PROJECT_DESIGN.md`, `ARCHITECTURE.md`, etc.) — those are planning documents, not a description of current code.
 
-**Current implementation stage:** end of Week 6 of a 12-week roadmap (`project_docs/IMPLEMENTATION_ROADMAP.md`). The repository contains the data plane (ingestion, validation, cleaning, features, DVC versioning), the model plane (LightGBM + isotonic calibration + SHAP, tracked and registered in MLflow), the serving plane (authenticated FastAPI `/predict` with fail-closed Postgres audit rows), and the monitoring half of the loop (Evidently drift detection, `drift_events` persistence, the seeded S1–S5 benchmark). There is no decision engine, no retrain pipeline, no gate, no dashboard, and no LLM integration of any kind yet.
+**Current implementation stage:** end of Week 7 of a 12-week roadmap (`project_docs/IMPLEMENTATION_ROADMAP.md`). The repository contains the data plane (ingestion, validation, cleaning, features, DVC versioning), the model plane (LightGBM + isotonic calibration + SHAP, tracked and registered in MLflow), the serving plane (authenticated FastAPI `/predict` with fail-closed Postgres audit rows), and the first half of the loop — Evidently drift detection with the seeded S1–S5 benchmark, and the deterministic Decision Engine that turns each measured window into an auditable Decision Card. There is no retrain pipeline, no validation gate, no shadow deployment, no dashboard, and no LLM integration of any kind yet.
 
-**Current milestone (Week 6) exit criteria, both met:**
-- An injected drift scenario produces a `drift_events` row and an Evidently report per window (§14.4).
-- The no-drift control is measured under the same thresholds, and the residual signal it shows is documented rather than tuned away (§14.4).
+**Current milestone (Week 7) exit criteria, both met:**
+- All five drift scenarios produce the card the policy table predicts, including `NO_OP` on the control's quiet window (§15.5).
+- Branch coverage on the Decision Engine is 99%, against the roadmap's ≥ 95% target (§10).
 
 ---
 
@@ -31,7 +31,7 @@ Only technologies **actually present in the repository today** are listed. Every
 | **DVC** | 3.67.1 | Hash-pinned data versioning without cloud credentials | Versions the raw and processed datasets via a **local** remote |
 | **ucimlrepo** | 0.0.7 | Official UCI ML Repository fetch helper | Downloads the primary dataset programmatically (`ml/data/ingest.py`) |
 | **Jupyter / ipykernel** | 1.0+ / 6.29+ | Interactive EDA | Runs `notebooks/01_eda.ipynb` |
-| **pytest** | 9.1.1 | Standard Python test runner | 328 tests: Week 2 data contract, Week 3 model/calibration/SHAP, Week 4 tracking/registry, Week 5 API/auth/audit contracts, and Week 6 drift/PSI/scenario/persistence contracts |
+| **pytest** | 9.1.1 | Standard Python test runner | 523 tests: Week 2 data contract, Week 3 model/calibration/SHAP, Week 4 tracking/registry, Week 5 API/auth/audit contracts, Week 6 drift/PSI/scenario/persistence contracts, and Week 7 policy/confidence/card/decision contracts |
 | **ruff** | 0.16.8 | Fast combined linter/formatter | Enforced via `pyproject.toml`, the pre-commit hook, and CI (`check` + `format --check`) |
 | **pre-commit** | 4.6.2 | Runs ruff automatically on commit | Installed (`.git/hooks/pre-commit`); hook pinned to ruff v0.16.8 to match the pinned CLI |
 | **LightGBM** | 4.7.0 | Gradient boosting is the right tool for mid-size tabular clinical data (`project_docs/TECH_STACK.md`) | The Week 3 readmission classifier |
@@ -47,6 +47,9 @@ Only technologies **actually present in the repository today** are listed. Every
 | **Evidently** | 0.7.23 | PSI/KS/prediction drift plus presentable HTML reports from one library (`project_docs/TECH_STACK.md`) | The Week 6 drift engine (`loop/monitor/drift.py`) |
 | **APScheduler** | 3.11.3 | In-process scheduling for one periodic job, without an orchestrator deployment | The Week 6 monitor worker (`loop/monitor/worker.py`) |
 | **SciPy** | 1.18.1 | Already a scikit-learn dependency; named explicitly because the monitor imports `ks_2samp` directly | KS two-sample test in the hand-rolled cross-check |
+| **PyYAML** | 6.0.3 | Arrives with MLflow, but `configs/policy-v*.yaml` is a governance artifact the engine reads directly, so the dependency is declared rather than borrowed | Loading the versioned decision policy |
+| **Pydantic** | 2.13.5 | Already pinned by FastAPI; `project_docs/ARCHITECTURE.md` §3.9 specifies the Decision Card as a Pydantic model | The Week 7 Decision Card contract |
+| **pytest-cov** | 7.1.0 | Measures the roadmap's 95%-branch-coverage Week 7 deliverable for the engine | `pytest --cov=loop.engine --cov-branch` |
 | **Git** | 2.53.0 | Version control | Repository initialized; `origin` configured; Week 1–2 history committed |
 | **Node.js** | 24.14.0 | Pre-existing in the repo before this build | Used *only* by `project_docs/build_pdf.mjs` to render the planning-doc PDF; unrelated to the application and not required to run anything in this document |
 
@@ -554,9 +557,18 @@ pytest -q tests/test_api_auth.py tests/test_api_predict.py          tests/test_a
 **How to verify the installation:**
 ```bash
 pytest -q
-# Expected: 16 passed
+# Expected: 523 passed
 ruff check .
 # Expected: All checks passed!
+ruff format --check .
+# Expected: <N> files already formatted
+```
+
+**How to verify the Decision Engine's branch coverage** (the Week 7 deliverable
+is at least 95%):
+```bash
+pytest tests/engine --cov=loop.engine --cov-branch --cov-report=term-missing -q
+# Expected: TOTAL ... 99%  (the single miss is evaluate.py's `__main__` guard)
 ```
 
 **How to verify the data pipeline (there is no API yet to verify):**
@@ -596,14 +608,15 @@ print('No patient leakage across splits: OK')
 
 ## 12. Current Limitations
 
-(Scoped strictly to Week 6 — this is not a roadmap of what's missing overall, just what a developer running the project today should know.)
+(Scoped strictly to Week 7 — this is not a roadmap of what's missing overall, just what a developer running the project today should know.)
 
 - **No frontend.** The Streamlit dashboard is Week 10; the API's OpenAPI page at `/docs` is the only interactive surface.
 - **No governed promotion, and no shadow scoring.** The API serves the `champion` alias, but `challenger` and `shadow` remain unused: shadow dual-scoring is Week 9 middleware, and the validation gate and human approval arrive in Weeks 8–9. `champion` still means "the first registered version", not "a model that passed a gate".
 - **Serving latency is above target.** A warm `/predict` takes roughly 350 ms against the roadmap's < 200 ms goal; per-request SHAP dominates. The roadmap's own mitigations (batching, a cached explainer path) are not implemented.
-- **No Decision Engine, no gate, no shadow deployment, no dashboard.** All Week 7+. The monitor writes `drift_events` rows; nothing reads them yet.
+- **No retrain pipeline, no validation gate, no shadow deployment, no dashboard.** All Week 8+. The engine records `FULL_RETRAIN` and `INCREMENTAL_RETRAIN` as *recommendations on a card*; nothing acts on them, and no model is retrained or promoted.
+- **Policy rules 5 and 6 never fire on real data.** Rule 5 needs matured-label evidence that nothing produces yet; rule 6 needs the `retrain_runs` table, which is Week 8. Both branches exist and are unit-tested (§15.3).
 - **No delayed-label performance monitoring.** ARCHITECTURE.md §3.7 lists AUROC/recall on a matured-label window alongside input and prediction drift. Week 6 implements the two leading indicators only; the matured-label arm (and scenario S4's detection, as opposed to its injection) needs the label-latency handling that Weeks 7–8 introduce.
-- **The S5 control is not perfectly silent on this dataset** — see §14.4. Two administrative features drift genuinely across the serving stream, which is a finding about the UCI extract, not a bug in the monitor.
+- **The S5 control is not perfectly silent on this dataset** — see §14.4. Two administrative features drift genuinely across the serving stream, which is a finding about the UCI extract, not a bug in the monitor. Under policy-v1 that carries the control to an `INCREMENTAL_RETRAIN` recommendation by its third window (§15.6); the behaviour is bounded, tested and recorded rather than tuned away, and resolving it is a policy-v2 decision.
 - **No LLM/Gemini integration exists yet**, and the offline-LLM-vs-Gemini-mandate conflict (§7) is unresolved.
 - **No shared remote history** — commits exist locally and `origin` is configured, but the Week 1–3 history has not been pushed.
 - **Single-machine, local-only setup.** DVC's remote is a local directory (`dvc-storage/`, gitignored) — there is no shared/team remote configured.
@@ -613,9 +626,9 @@ print('No patient leakage across splits: OK')
 
 ## 13. Current Project Status
 
-**Completed (Week 1 + Week 2 + Week 3 + Week 4 + Week 5 + Week 6 exit criteria):**
+**Completed (Week 1 + Week 2 + Week 3 + Week 4 + Week 5 + Week 6 + Week 7 exit criteria):**
 - Repo scaffold, ruff + pre-commit + basic CI (lint + test) configuration
-- Docker Compose running PostgreSQL 16 (holding `predictions` and `drift_events`)
+- Docker Compose running PostgreSQL 16 (holding `predictions`, `drift_events` and `decision_cards`)
 - UCI Diabetes 130-US dataset downloaded and verified (101,766 × 50 columns)
 - `notebooks/01_eda.ipynb` — executed, documents missingness/imbalance/leakage findings with real output
 - Week 1 baseline logistic regression: AUROC 0.6191
@@ -633,9 +646,10 @@ print('No patient leakage across splits: OK')
 - MLflow service in Compose, UI on :5000; `vitalloop-readmission` v1 registered with the `champion` alias
 - `api/` + `db/` — authenticated FastAPI serving with JWT role claims, fail-closed PostgreSQL audit rows, health/readiness, and OpenAPI docs
 - `loop/monitor/` + `scenarios/` — Evidently drift monitoring per window (PSI/KS/prediction drift) against the frozen-evaluation launch reference, `drift_events` persistence, Evidently HTML report artifacts, an APScheduler worker, and the seeded S1–S5 benchmark
-- 328/328 pytest tests passing; `ruff check .` and `ruff format --check .` clean
+- `configs/policy-v1.yaml` + `loop/engine/` — the deterministic Decision Engine: the versioned six-rule policy table, the decomposed confidence formula, the frozen Pydantic Decision Card, `decision_cards` persistence with idempotent re-evaluation, and the evaluator CLI
+- 523/523 pytest tests passing (99% branch coverage on the engine); `ruff check .` and `ruff format --check .` clean
 
-**In Progress:** nothing — Week 6 is a clean stopping point with no partially-built component.
+**In Progress:** nothing — Week 7 is a clean stopping point with no partially-built component.
 
 **Open question carried into Week 4:** the Week 3 model scores ~0.60 ROC-AUC,
 below the ~0.64–0.69 range `project_docs/DATASET_ANALYSIS.md` cites for this
@@ -649,7 +663,7 @@ identical conditions. Whether to restate the roadmap's "at or above published
 benchmarks" outcome in light of the stricter protocol is a decision for review,
 not something Week 3 resolved by tuning.
 
-**Remaining (Week 7 onward — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full list):** the Decision Engine + Decision Card, the retrain pipeline + validation gate, shadow deployment + human approval + LLM narration, the Streamlit dashboard + audit PDF export, CI/CD hardening, and final reporting/viva prep.
+**Remaining (Week 8 onward — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full list):** the retrain pipeline + validation gate, shadow deployment + human approval + LLM narration, the Streamlit dashboard + audit PDF export, CI/CD hardening, and final reporting/viva prep.
 
 ---
 
@@ -798,3 +812,257 @@ database created before Week 6 acquires `drift_events` the next time either
 process starts. `tests/test_db_init.py` covers the fresh-database path, the
 "predictions-only database gains drift_events" upgrade path, and that existing
 rows survive it.
+
+---
+
+## 15. Week 7 — The Decision Engine
+
+### 15.1 What it does
+
+Week 6 measures; Week 7 decides. The Decision Engine reads a `drift_events` row
+back, evaluates it against a **versioned policy file**, and emits one **Decision
+Card** — an immutable record binding the trigger evidence, the policy version
+that judged it, the action, a decomposed confidence score, the DVC hash a
+retrain would run on, and the acceptance criteria a challenger must clear
+(`RESEARCH_NOVELTY.md` C1).
+
+It recomputes nothing. Every PSI and KS value on a card was produced by the
+monitor and copied across verbatim, so a card and the window it came from can
+never disagree.
+
+`ARCHITECTURE.md` §3.8: *"A pure-Python, fully unit-tested policy module. **No
+LLM, no randomness, no network.**"* `engine.decide` has no database handle, no
+filesystem access and no clock of its own — `now` is an argument. The same
+evidence and the same policy produce the same card, which is what makes C1's
+claim ("every card can be re-derived by hand from the policy table") testable.
+
+| Module | Role |
+|---|---|
+| `configs/policy-v1.yaml` | the policy artifact: every number the engine decides with |
+| `loop/engine/policy.py` | loads and validates a policy version |
+| `loop/engine/evidence.py` | the engine's input: one window plus its breach history |
+| `loop/engine/confidence.py` | the deterministic confidence formula (§3.8) |
+| `loop/engine/rules.py` | the six-rule table, as a pure function |
+| `loop/engine/card.py` | the Pydantic Decision Card — the contract Weeks 8–9 read |
+| `loop/engine/engine.py` | `decide(evidence, policy) -> DecisionCard` |
+| `loop/engine/history.py` | reads `drift_events`, builds evidence, finds undecided windows |
+| `loop/engine/persistence.py` | a card → a `decision_cards` row, idempotently |
+| `loop/engine/evaluate.py` | the worker's library call, and the CLI |
+
+### 15.2 Running it
+
+The engine runs inside the **existing** monitor worker — `ARCHITECTURE.md` §5
+gives that service both jobs ("drift job + decision engine") and §4.7 repeats
+it, so there is no second scheduler, no queue, and no new Compose service. Each
+tick measures a window, writes its `drift_events` row, then decides it.
+
+```bash
+# every window no policy version has decided yet
+python -m loop.engine.evaluate
+
+# one stream; or decide without writing
+python -m loop.engine.evaluate --scenario S5
+python -m loop.engine.evaluate --dry-run
+
+# the worker, which now measures and decides on the same tick
+VITALLOOP_MONITOR_SCENARIO=S1 python -m loop.monitor.worker
+```
+
+`VITALLOOP_POLICY_VERSION` selects the policy (default `policy-v1`). A policy
+that will not load is fatal at worker startup rather than on the first tick: a
+monitor that silently stopped deciding looks exactly like a monitor that found
+nothing to decide.
+
+### 15.3 The policy, and how it is versioned
+
+`ARCHITECTURE.md` §3.8: *"Every policy version is a tagged code artifact; the
+Decision Card records which policy version produced it. Changing a threshold is
+a reviewed pull request — that **is** the governance story."*
+
+So every number lives in `configs/policy-v1.yaml` and nowhere else. There is no
+default threshold anywhere in `loop/engine/`: a missing key fails the load
+rather than falling back to something no reviewer approved. `load_policy` also
+refuses a policy the engine could not defend — weights that do not sum to 1.0, a
+breach threshold above the severe threshold, a one-window "persistence" rule, a
+precedence that does not order exactly rules 1–5.
+
+**A new policy is a new file.** `policy-v1.yaml` is never edited once cards
+reference it, because `decision_cards.policy_version` is only meaningful if the
+artifact it names still says what it said at emission. Re-evaluating history
+under `policy-v2` produces a *distinct* card per window — that is the governance
+feature, not a duplicate.
+
+#### The rule table (policy-v1)
+
+| # | Condition | Action | Disposition |
+|---|---|---|---|
+| 1 | No feature PSI ≥ 0.10, no prediction drift | `NO_OP` | — |
+| 2 | 1–2 features 0.10 ≤ PSI < 0.25, no prediction drift, first window | `ALERT_ONLY` | — |
+| 3 | Same features breach ≥ 2 consecutive windows | `INCREMENTAL_RETRAIN` | auto → shadow |
+| 4 | Any PSI ≥ 0.25 **or** prediction drift | `FULL_RETRAIN` | auto → shadow if confidence ≥ 0.75, else escalate |
+| 5 | Matured-label AUROC drop > 0.03 vs launch | `FULL_RETRAIN` | **always** escalate to human |
+| 6 | Retrained < 7 days ago **or** budget exhausted | downgrade to `ALERT_ONLY` | escalate |
+
+**Two things §3.8 does not state, decided here and written into the YAML so
+they are reviewable rather than buried in an `if`-chain:**
+
+- **Precedence.** The conditions overlap — a window at PSI 0.30 on features that
+  also breached last window satisfies rules 3 and 4 at once — so turning the
+  table into a function needs an order. `precedence: [5, 4, 3, 2, 1]`, then rule
+  6 as a downgrade. The reading is *strongest evidence wins*: a confirmed
+  matured-label regression outranks leading indicators (C3's claim), severe
+  outranks persistent, persistent outranks new, and rule 6 is phrased as a
+  *downgrade* so it applies to whatever the table selected.
+- **The uncovered region.** Three or more features breaching mildly in their
+  first window match no rule (rule 2 caps at two, rule 3 needs a second window,
+  rule 4 needs 0.25 or prediction drift, rule 1 needs no breach at all).
+  `uncovered_breach_action: ALERT_ONLY` takes the table's weakest non-silent
+  action. It is a gap-filler, not a seventh rule: it selects no action the table
+  does not already contain, and it never retrains. Cards from it carry
+  `rule_id: "uncovered"` so they are visible rather than disguised as rule 2.
+
+**Rules 5 and 6 are inert on every real card today.** Nothing in the repository
+produces matured-label evidence (delayed-label monitoring is later work) and
+`retrain_runs` is Week 8, so both branches exist, are unit-tested, and never
+fire on Week 6 data. Their inputs are explicit arguments rather than database
+reads, which is how the tests reach them.
+
+#### Confidence
+
+```
+confidence = 0.35·severity + 0.20·breadth + 0.20·persistence + 0.25·evidence
+  severity    = min(max_PSI / 0.5, 1.0)
+  breadth     = breaching features / monitored features
+  persistence = min(consecutive breaching windows / 3, 1.0)
+  evidence    = 1.0 if matured labels confirm degradation, else 0.5
+```
+
+The four terms are stored beside the total, so the headline number can be
+checked by arithmetic — a confidence that cannot be re-derived is the thing this
+formula exists to replace (`PROJECT_DESIGN.md` §4.2).
+
+Because no matured labels exist, `evidence` is 0.5 on every real card, which
+caps attainable confidence at **0.875**. The 0.75 auto-proceed line is therefore
+reachable but demanding, and in practice every Week 6 window that reaches rule 4
+escalates to a human (§15.5). That is the label-latency restraint C3 argues for,
+working as designed.
+
+> **A discrepancy in the documents.** The example card in `ARCHITECTURE.md` §3.9
+> shows `"confidence": 0.86` beside `{"severity": 0.54, "breadth": 0.18,
+> "persistence": 0.67, "evidence": 0.5}`. Under policy-v1's weights those four
+> terms sum to **0.484**, not 0.86. The formula is normative (§3.8, §4.3) and
+> the example is illustrative, so the engine implements the formula;
+> `tests/engine/test_confidence.py` pins that reading.
+
+### 15.4 The Decision Card and its table
+
+`decision_cards` is the third of the five tables in §4.6. The ERD's columns
+(`card_id`, `drift_event_id`, `policy_version`, `action`, `confidence`,
+`card_json`, `status`, `created_at`) are all present; the rest are a *queryable
+projection* of `card_json`, never a second source of truth, so a dashboard need
+not open JSON to answer "which windows escalated, under which policy, on which
+scenario".
+
+**Idempotency is enforced twice.** `card_id` is derived from the drift event and
+the policy version (`dc-<window date>-<8 hex>`), so re-evaluating a window
+produces the same primary key; and `(drift_event_id, policy_version)` carries a
+unique constraint, so the guarantee survives any future change to how ids are
+shaped. `record_decision` checks first and returns the existing card, which makes
+re-running the evaluator over a backlog a no-op rather than merely
+non-destructive.
+
+Append-only, like the two tables before it. `EXECUTED` and `BLOCKED` are status
+transitions Week 8's gate performs. A card at emission is in neither state and
+the documents do not name the state it *is* in, so Week 7 records the only
+distinction it can defend: `OPEN` when the action leaves downstream work
+(`INCREMENTAL_RETRAIN`, `FULL_RETRAIN`), `CLOSED` when it does not.
+
+Week 9's `narrative` and `narrative_source` are already on the schema and null.
+`RISK_ANALYSIS.md` §1 freezes this contract in week 7 precisely so a Week 9 that
+had to widen it would not break every card already emitted.
+
+### 15.5 The benchmark, as decided
+
+All 17 Week 6 windows, evaluated with `python -m loop.engine.evaluate` against
+the recorded `drift_events` rows:
+
+| Scenario | w0 | w1 | w2 |
+|---|---|---|---|
+| **S1** covariate | rule 4 → `FULL_RETRAIN` / escalate (0.402) | rule 4 → `FULL_RETRAIN` / escalate (0.480) | rule 4 → `FULL_RETRAIN` / escalate (0.567) |
+| **S2** coding | rule 4 → `FULL_RETRAIN` / escalate (0.486) | rule 4 → `FULL_RETRAIN` / escalate (0.579) | rule 4 → `FULL_RETRAIN` / escalate (0.624) |
+| **S3** prevalence | rule 4 → `FULL_RETRAIN` / escalate (0.468) | rule 4 → `FULL_RETRAIN` / escalate (0.569) | rule 4 → `FULL_RETRAIN` / escalate (0.681) |
+| **S4** label drift | rule 1 → `NO_OP` (0.187) | rule 2 → `ALERT_ONLY` (0.297) | rule 3 → `INCREMENTAL_RETRAIN` / shadow (0.391) |
+| **S5** control | rule 1 → `NO_OP` (0.187) | rule 2 → `ALERT_ONLY` (0.297) | rule 3 → `INCREMENTAL_RETRAIN` / shadow (0.391) |
+
+Each injected scenario is caught by the rule that matches its mechanism, and S4
+decides identically to S5 — correct, because S4 moves labels rather than
+features and rule 5 has no matured labels to read. **No card auto-proceeds:**
+every `FULL_RETRAIN` escalates, because leading-indicator confidence tops out
+below 0.75.
+
+### 15.6 The Week 6 control floor, under the documented policy
+
+Week 6 recorded that the *untouched* S5 stream breaches on `payer_code`
+(0.11–0.13) and `medical_specialty` (0.13–0.17) from window 1 onward — real
+drift in the UCI extract, in features ranked 7th and 11th by global SHAP
+(§14.4). Week 7 did not change a threshold, drop a feature, or special-case S5.
+It applied policy-v1 and recorded what happened:
+
+- **w0** — nothing breaches → rule 1 → `NO_OP`.
+- **w1** — two mild breaches in their first window → rule 2 → `ALERT_ONLY`.
+- **w2** — *the same two features again* → rule 3 → `INCREMENTAL_RETRAIN`,
+  disposition auto → shadow.
+
+**So the untouched control reaches a retrain recommendation.** The persistence
+rule is working exactly as written; the drift it is reacting to is real and
+persistent rather than noisy, which is precisely the case rule 3 was designed to
+catch. What policy-v1 has no mechanism for is a feature that drifts *genuinely
+but harmlessly* — there is no per-feature baseline, no suppression list, and no
+minimum-severity floor under rule 3.
+
+The documents do not say how this should be resolved, so Week 7 has not invented
+a resolution. What it has done is bound the blast radius and make the behaviour
+inspectable:
+
+- The control never reaches `FULL_RETRAIN` — rule 4 needs PSI 0.25 or prediction
+  drift, and the control has neither.
+- The disposition is `AUTO_PROCEED_SHADOW`, so the worst outcome is a challenger
+  queued for the shadow slot. Autonomy stops at shadow; nothing reaches
+  clinicians without the Week 8 gate and a Week 9 human approval.
+- Confidence stays at 0.391, far below the 0.75 auto-proceed line.
+- `tests/engine/test_evaluate.py` asserts this three-card sequence against the
+  measured numbers, so changing it is a deliberate policy-v2 decision with a
+  failing test to force the conversation — not a quiet edit.
+
+The options a policy-v2 could take are a per-feature baseline, a minimum
+severity under rule 3, or an explicit exclusion with a recorded rationale. All
+three are policy choices that belong to a reviewed change to `configs/`, which
+is the governance story this design is built around.
+
+### 15.7 Privacy
+
+A Decision Card carries feature *names* with their PSI and KS values — the same
+aggregate shape `drift_events.feature_stats` holds — plus versions, thresholds
+and prose. `decision_cards` has nineteen columns and not one of them can hold a
+patient row. Only *breaching* features reach a card, so it is evidence for a
+decision rather than a copy of the measurement.
+
+This is what makes §3.10's claim about the Week 9 narration layer
+("structurally incapable of seeing PHI") true: the LLM receives the card, and
+the card has nowhere to put a patient record. Tests assert the field sets and
+the absence of identifiers, and the same check runs against the live PostgreSQL
+rows.
+
+### 15.8 What Week 7 deliberately does not do
+
+- **It does not retrain.** `FULL_RETRAIN` and `INCREMENTAL_RETRAIN` are
+  *recommendations recorded on a card*. Nothing in `loop/engine/` imports
+  `ml.train`, touches an MLflow alias, or writes a model artifact. The retrain
+  pipeline and the validation gate are Week 8.
+- **It does not monitor delayed-label performance.** Rule 5's branch exists and
+  is tested; no producer of matured-label evidence does.
+- **It adds no infrastructure.** No new Compose service, no queue, no second
+  scheduler, no API endpoint — the roadmap asks for none, and the dashboard that
+  will read these rows is Week 10.
+- **It does not change Week 6.** No threshold, statistic, scenario or monitored
+  feature was altered. The engine reads what the monitor wrote.

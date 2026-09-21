@@ -5,7 +5,7 @@
 #
 #     pip install -r requirements.txt -c constraints.txt
 #
-# Week 1-6 dependencies only.
+# Week 1-7 dependencies only.
 # Later weeks add: streamlit, fpdf2 — introduced when their week starts.
 
 pandas>=2.2
@@ -49,3 +49,13 @@ httpx>=0.27
 evidently>=0.7
 APScheduler>=3.11
 scipy>=1.14
+
+# Week 7 — decision engine.
+# PyYAML arrives transitively with MLflow, but configs/policy-v*.yaml is the
+# governance artifact the engine reads directly, so the dependency is declared
+# rather than borrowed. pydantic is already pinned by FastAPI; the Decision Card
+# is a Pydantic model per ARCHITECTURE.md §3.9.
+PyYAML>=6.0
+pydantic>=2.9
+# Measures the roadmap's "≥ 95% branch coverage on the engine" deliverable.
+pytest-cov>=5.0

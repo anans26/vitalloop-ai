@@ -72,9 +72,10 @@ services:
       mlflow:
         condition: service_healthy
 
-  # Week 6: the drift-monitoring worker (ARCHITECTURE.md §5 `monitor`).
-  # APScheduler measures one window of the serving stream per interval and
-  # writes a drift_events row -- quiet windows included.
+  # Week 6-7: the drift-monitoring and decision worker (ARCHITECTURE.md §5
+  # `monitor`, which owns both jobs). APScheduler measures one window of the
+  # serving stream per interval, writes a drift_events row -- quiet windows
+  # included -- and emits the Decision Card for that window.
   #
   # The datasets, the model and the reports are bind mounts, not image layers:
   # they are DVC-tracked artifacts, and clinical data has no business inside a
@@ -88,6 +89,9 @@ services:
       VITALLOOP_MONITOR_SCENARIO: ${VITALLOOP_MONITOR_SCENARIO:-live}
       VITALLOOP_MONITOR_INTERVAL_SECONDS: ${VITALLOOP_MONITOR_INTERVAL_SECONDS:-300}
       VITALLOOP_MONITOR_MAX_WINDOWS: ${VITALLOOP_MONITOR_MAX_WINDOWS:-}
+      # Week 7: the same worker decides each window it measures
+      # (ARCHITECTURE.md §5 -- "drift job + decision engine").
+      VITALLOOP_POLICY_VERSION: ${VITALLOOP_POLICY_VERSION:-policy-v1}
       # "local" reads the DVC-tracked artifact mounted below; set "mlflow" to
       # score with the registered champion instead.
       VITALLOOP_MODEL_SOURCE: ${VITALLOOP_MONITOR_MODEL_SOURCE:-local}
