@@ -1,0 +1,38 @@
+# VitalLoop drift-monitoring worker (Week 6).
+#
+# Same dependency files as the API image, for the same reason: one source of
+# truth for versions (requirements.txt + constraints.txt).
+#
+# What this image deliberately does *not* contain is data. The reference split,
+# the serving stream and the trained model are DVC-tracked artifacts, and
+# baking clinical data into a container image would put it everywhere the image
+# goes. They arrive as read-only bind mounts at run time -- see the `monitor`
+# service in docker-compose.yml.
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# libgomp is LightGBM's OpenMP runtime; the slim image does not ship it.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt constraints.txt ./
+RUN pip install --upgrade pip \
+    && pip install -r requirements.txt -c constraints.txt
+
+# Only what monitoring needs. `api/` comes along for its logging configuration
+# and nothing else -- the worker starts no server and holds no JWT secret.
+COPY loop/ ./loop/
+COPY scenarios/ ./scenarios/
+COPY db/ ./db/
+COPY ml/ ./ml/
+COPY api/ ./api/
+COPY dvc.lock ./dvc.lock
+
+# No secrets are baked in: every credential arrives through the environment.
+CMD ["python", "-m", "loop.monitor.worker"]

@@ -1,18 +1,20 @@
 """SQLAlchemy models for the audit tables.
 
-Week 5 creates the first of the five tables in `project_docs/ARCHITECTURE.md`
-§4.6: `predictions`, the per-request audit row. The remaining four
-(`drift_events`, `decision_cards`, `retrain_runs`, `approvals`) belong to
-Weeks 6-9 and are deliberately absent.
+Two of the five tables in `project_docs/ARCHITECTURE.md` §4.6 exist here:
+`predictions` (Week 5, the per-request audit row) and `drift_events` (Week 6,
+one monitoring window's measurement). The remaining three
+(`decision_cards`, `retrain_runs`, `approvals`) belong to Weeks 7-9 and are
+deliberately absent.
 
-The table is **append-only in application code**: nothing in this repository
-issues UPDATE or DELETE against it, which is how §4.6's immutability claim is
-kept without database-level machinery.
+Both tables are **append-only in application code**: nothing in this repository
+issues UPDATE or DELETE against either, which is how §4.6's immutability claim
+is kept without database-level machinery.
 
-What is *not* stored is as deliberate as what is. The request payload is
-reduced to a SHA-256 hash, so a later investigation can prove which input
-produced a score without the audit trail becoming a second copy of the clinical
-record.
+What is *not* stored is as deliberate as what is. A prediction's request
+payload is reduced to a SHA-256 hash, so a later investigation can prove which
+input produced a score without the audit trail becoming a second copy of the
+clinical record; a drift event holds per-feature *statistics* and a path to the
+Evidently report, never the window's rows.
 """
 
 from datetime import UTC, datetime
@@ -20,6 +22,7 @@ from datetime import UTC, datetime
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     DateTime,
     Float,
     Index,
@@ -93,3 +96,54 @@ class Prediction(Base):
 
 
 Index("ix_predictions_ts_caller", Prediction.ts, Prediction.caller)
+
+
+class DriftEvent(Base):
+    """One monitoring window's drift measurement.
+
+    The second of the five tables in `project_docs/ARCHITECTURE.md` §4.6.
+    Columns follow that ERD (`event_id`, `feature_stats`, `prediction_drift`,
+    `report_uri`, `window_start`, `window_end`); the rest are the operational
+    fields needed to tell one window from another when reading the trail back.
+
+    **Every window is persisted, including quiet ones.** PROJECT_DESIGN.md §6
+    calls the monitor "the system's senses; every window persisted", and Week 7's
+    Decision Engine needs consecutive-window history to distinguish a one-off
+    blip from a persistent breach. A window with no breaching feature is a row
+    with `breaching_feature_count = 0`, not an absent row.
+
+    Append-only in application code, like `predictions`.
+    """
+
+    __tablename__ = "drift_events"
+
+    event_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now(), index=True
+    )
+
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    window_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    # Which stream produced this window: a seeded scenario (S1-S5) or live traffic.
+    scenario: Mapped[str] = mapped_column(String(32), index=True)
+
+    # Per-feature PSI/KS, as measured. No feature values, only statistics.
+    feature_stats: Mapped[list | None] = mapped_column(JSON_TYPE, nullable=True)
+    prediction_drift: Mapped[bool] = mapped_column(Boolean, default=False)
+    prediction_psi: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    max_psi: Mapped[float | None] = mapped_column(Float, nullable=True)
+    breaching_feature_count: Mapped[int] = mapped_column(Integer, default=0)
+    reference_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    current_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Path to the Evidently HTML artifact, not its contents.
+    report_uri: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    model_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    data_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    policy_thresholds: Mapped[dict | None] = mapped_column(JSON_TYPE, nullable=True)
+
+
+Index("ix_drift_events_scenario_created", DriftEvent.scenario, DriftEvent.created_at)

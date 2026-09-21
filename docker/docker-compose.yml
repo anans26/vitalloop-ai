@@ -72,6 +72,40 @@ services:
       mlflow:
         condition: service_healthy
 
+  # Week 6: the drift-monitoring worker (ARCHITECTURE.md §5 `monitor`).
+  # APScheduler measures one window of the serving stream per interval and
+  # writes a drift_events row -- quiet windows included.
+  #
+  # The datasets, the model and the reports are bind mounts, not image layers:
+  # they are DVC-tracked artifacts, and clinical data has no business inside a
+  # container image. The two data mounts are read-only because the monitor
+  # observes the stream, it never edits it.
+  monitor:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.monitor
+    environment:
+      VITALLOOP_MONITOR_SCENARIO: ${VITALLOOP_MONITOR_SCENARIO:-live}
+      VITALLOOP_MONITOR_INTERVAL_SECONDS: ${VITALLOOP_MONITOR_INTERVAL_SECONDS:-300}
+      VITALLOOP_MONITOR_MAX_WINDOWS: ${VITALLOOP_MONITOR_MAX_WINDOWS:-}
+      # "local" reads the DVC-tracked artifact mounted below; set "mlflow" to
+      # score with the registered champion instead.
+      VITALLOOP_MODEL_SOURCE: ${VITALLOOP_MONITOR_MODEL_SOURCE:-local}
+      VITALLOOP_MLFLOW_TRACKING_URI: http://mlflow:5000
+      VITALLOOP_REGISTERED_MODEL_NAME: ${VITALLOOP_REGISTERED_MODEL_NAME:-vitalloop-readmission}
+      VITALLOOP_MODEL_ALIAS: ${VITALLOOP_MODEL_ALIAS:-champion}
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-vitalloop}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in docker/.env}
+      POSTGRES_DB: ${POSTGRES_DB:-vitalloop}
+    volumes:
+      - ../datasets/processed:/app/datasets/processed:ro
+      - ../models:/app/models:ro
+      - ../reports:/app/reports
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   pgdata:
   mlflow-data:

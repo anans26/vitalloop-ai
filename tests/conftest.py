@@ -155,3 +155,27 @@ def auth_headers(api_env) -> dict:
 
     token = create_access_token("dr-synthetic", role="clinician", settings=api_env)
     return {"Authorization": f"Bearer {token}"}
+
+
+# ---------------------------------------------------------------------------
+# Week 6 monitoring fixtures
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def drift_db(tmp_path):
+    """A throwaway SQLite database brought up through the real `init_db` path.
+
+    Deliberately `init_db` rather than `DriftEvent.__table__.create`: the point
+    of these tests is that the documented initialisation call is what creates
+    `drift_events`, not that SQLAlchemy can create a table it is handed.
+    """
+    from db.session import configure_engine, get_session, init_db, reset_engine
+
+    reset_engine()
+    configure_engine(f"sqlite:///{(tmp_path / 'monitor.db').as_posix()}")
+    init_db()
+    session = get_session()
+    try:
+        yield session
+    finally:
+        session.close()
+        reset_engine()

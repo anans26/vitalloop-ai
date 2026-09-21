@@ -163,7 +163,7 @@ MLOPS PROJECT/
 
 ### `ml/config.py`
 - **Purpose:** Week 3 training configuration — artifact paths, the random seed, LightGBM parameters, calibration settings, threshold and subgroup choices.
-- **Notable:** exposes **no** path constant for `future_stream.csv`, which is how the "reserved for Week 6" rule is enforced rather than merely documented.
+- **Notable:** exposes **no** path constant for `future_stream.csv`. That was how the "reserved for Week 6" rule was enforced rather than merely documented; Week 6 opens the stream from `loop/monitor/config.py` instead, because `ml/config.py` is a declared DVC stage dependency and editing it would invalidate `dvc.lock` and force a retrain.
 - **Status:** implemented.
 
 ### `ml/train.py`
@@ -206,7 +206,7 @@ MLOPS PROJECT/
 - **Status:** implemented; a live authenticated request returns a calibrated score with top-3 factors and writes one Postgres audit row.
 
 ### `db/` (Week 5)
-- **Purpose:** `models.py` defines the `predictions` audit table (the first of the five in ARCHITECTURE.md §4.6); `session.py` owns the engine, the per-request session, `init_db`, and the readiness check.
+- **Purpose:** `models.py` defines the `predictions` audit table and the `drift_events` monitoring table (the first two of the five in ARCHITECTURE.md §4.6); `session.py` owns the engine, the per-request session, `init_db`, and the readiness check. `init_db` is `create_all`, so a database created before Week 6 acquires `drift_events` the next time the API or the monitor starts against it.
 - **Design note:** schema creation is `create_all`, not Alembic. One table exists today and the roadmap adds the rest week by week; a migration system would be infrastructure nobody is using. What matters now is that a fresh database reaches the current schema in one documented call.
 - **Append-only:** nothing in the repository issues UPDATE or DELETE against `predictions`.
 - **Status:** implemented and exercised against the real Postgres container.
@@ -256,7 +256,7 @@ MLOPS PROJECT/
 | `ml/data/clean.py` | Leakage-safe cleaning | `pandas` | Validated dataframe | Cleaned dataframe with `readmitted_30d` target; raw `readmitted` dropped | Done | Consumed unchanged by Week 3 training |
 | `ml/data/icd9.py` | Diagnosis grouping | `pandas` | Raw ICD-9 code series | Chapter-label series | Done | — |
 | `ml/data/features.py` | Train==serve transform | `scikit-learn`, `icd9.py` | Cleaned dataframe | Encoded numeric matrix (249 columns) | Done, consumed by `ml/train.py` | Week 5's FastAPI service will `transform` with the *same fitted instance* at inference time |
-| `ml/data/split.py` | Leakage-free split | `pandas` | Cleaned, deduped dataframe | 3 dataframes (train/eval_frozen/future_stream) | Done | `future_stream` is reserved for the Week 6 seeded drift scenarios (not yet built) |
+| `ml/data/split.py` | Leakage-free split | `pandas` | Cleaned, deduped dataframe | 3 dataframes (train/eval_frozen/future_stream) | Done | `future_stream` is the serving stream the Week 6 drift scenarios replay |
 | `ml/data/build_dataset.py` | Pipeline orchestration | all of the above | Raw CSV path | 3 processed CSVs | Done | Week 3 added three further DVC stages downstream (`train_model`, `evaluate_model`, `explain_model`) |
 
 ---
@@ -381,7 +381,7 @@ The five-plane target (data → model → serving → self-healing loop → obse
 | Serving API (FastAPI, JWT, audit) | ✅ Completed | `POST /predict` with role-claimed JWT auth, fail-closed Postgres audit rows, `/health` and `/ready` |
 | Experiment tracking (MLflow) | ⬜ Not started | 0% — Week 4 |
 | API serving (FastAPI, JWT, audit rows) | ⬜ Not started | 0% — Week 5 |
-| Drift monitoring (Evidently) | ⬜ Not started | 0% — Week 6 |
+| Drift monitoring (Evidently) | ✅ Completed | `loop/monitor/` + `scenarios/` — per-window PSI/KS/prediction drift, `drift_events` rows, Evidently HTML reports, seeded scenarios S1–S5 |
 | Decision Engine + Decision Card | ⬜ Not started | 0% — Week 7 |
 | Retrain pipeline + validation gate | ⬜ Not started | 0% — Week 8 |
 | Shadow deployment, approval, LLM narration | ⬜ Not started | 0% — Week 9 |
@@ -389,7 +389,7 @@ The five-plane target (data → model → serving → self-healing loop → obse
 | CI/CD hardening | 🟡 Partially completed | Basic lint+test CI exists; training smoke test, gate check, and image build stages are Week 11 |
 | Report / viva prep | ⬜ Not started | 0% — Week 12 |
 
-**Overall project completion: roughly 2 of 12 weeks (~17%) by roadmap time, concentrated entirely in the data plane.**
+**Overall project completion: 6 of 12 weeks (~50%) by roadmap time — the data plane, the model plane, the serving plane, and now the monitoring half of the loop. The Decision Engine that consumes `drift_events` is Week 7 and does not exist.**
 
 ---
 
@@ -475,9 +475,8 @@ There is currently no request flow, no frontend-backend communication, and no AI
 
 ## 11. Pending Features — NOT IMPLEMENTED
 
-Everything below is described only because it is planned in `project_docs/IMPLEMENTATION_ROADMAP.md`. **None of it exists in the repository today.** (Weeks 3–5 — the model, calibration, SHAP, MLflow tracking and registry, and the authenticated serving API with its Postgres audit trail — have since been implemented and are no longer listed.) It is listed here purely so a new developer knows what is coming and doesn't go looking for it.
+Everything below is described only because it is planned in `project_docs/IMPLEMENTATION_ROADMAP.md`. **None of it exists in the repository today.** (Weeks 3–6 — the model, calibration, SHAP, MLflow tracking and registry, the authenticated serving API with its Postgres audit trail, and the Evidently drift monitor with the S1–S5 benchmark — have since been implemented and are no longer listed.) It is listed here purely so a new developer knows what is coming and doesn't go looking for it.
 
-- **Week 6 — NOT IMPLEMENTED:** Evidently drift monitoring, APScheduler worker, the seeded drift scenarios S1–S5.
 - **Week 7 — NOT IMPLEMENTED:** the Decision Engine, the Decision Card schema/persistence, the confidence formula.
 - **Week 8 — NOT IMPLEMENTED:** the retrain pipeline, the validation gate.
 - **Week 9 — NOT IMPLEMENTED:** shadow deployment, human approval flow, **any LLM/Gemini narration integration whatsoever**.
@@ -496,7 +495,8 @@ If any other document (including AI-generated summaries) describes any of the ab
 - **Where model code lives:** `ml/train.py`, `ml/evaluate.py`, `ml/explain.py`, configured by `ml/config.py` (Week 3; implemented). Changing any of these re-runs the DVC model stages — commit the regenerated `dvc.lock` alongside the change.
 - **Where tracking and registry code lives:** `ml/tracking.py` and `ml/registry.py` (Week 4; implemented). An alias must only ever move through `ml.registry.set_alias`, so the audit row cannot be skipped.
 - **Where new AI models/LLM clients will live:** `loop/narrate/` (Week 9; not yet created) — and must use `gemini-2.5-flash` per the project's mandatory constraint, with the offline-vs-cloud conflict (§9) resolved before writing that code.
-- **Where configuration will live:** `configs/` (policy versions, gate criteria — not yet created, Week 7+); environment variables should go in a gitignored `.env` with a committed `.env.example`, created when the first component actually needs one (do not create ahead of need).
+- **Where configuration will live:** `configs/` (policy versions, gate criteria — not yet created, Week 7+). Measurement settings that decide nothing live as module constants beside their code (`ml/config.py`, `loop/monitor/config.py`), following the same rule. Environment variables go in a gitignored `.env` with a committed `.env.example`, created when the first component actually needs one (do not create ahead of need).
+- **Where monitoring code lives:** `loop/monitor/` (Week 6; implemented) and `scenarios/` for the S1–S5 benchmark. `loop/engine/`, `loop/gate/` and `loop/narrate/` are Weeks 7–9 and do not exist yet.
 - **Branch conventions:** `main` is the only long-lived branch and must always be demoable — the roadmap's "Friday demo rule" (`project_docs/IMPLEMENTATION_ROADMAP.md`, Standing Rules). Work happens on short-lived branches named `week<N>/<topic>` (e.g. `week3/lightgbm-training`), or `fix/<topic>` for corrections outside the weekly cadence. Branches merge into `main` only with `ruff check .`, `ruff format --check .`, and `pytest -q` green; CI enforces the same three on every push and pull request. Delete the branch after merge.
 - **Commit conventions:** Conventional-Commits style subject lines (`feat:`, `fix:`, `docs:`, `chore:`, `test:`), imperative mood, under ~72 characters, with a body explaining *why* rather than restating the diff. Commits that change `ml/data/schema.py`, `clean.py`, `split.py`, or `build_dataset.py` must include the regenerated `dvc.lock` in the **same** commit — those four files are DVC stage dependencies, so splitting them across commits leaves `main` in a state where `dvc status` is dirty on a fresh clone.
 - **Naming conventions observed so far:** `snake_case` for modules and functions, one module per single responsibility, test files mirror source files 1:1 (`ml/data/clean.py` ↔ `tests/data/test_clean.py`).
