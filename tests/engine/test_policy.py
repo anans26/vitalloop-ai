@@ -13,6 +13,7 @@ from loop.engine.policy import (
     DEFAULT_POLICY_VERSION,
     POLICY_DIR,
     PolicyError,
+    available_policies,
     load_policy,
     parse_policy,
     policy_path,
@@ -21,31 +22,89 @@ from loop.engine.policy import (
 
 @pytest.fixture
 def document() -> dict:
-    """The shipped policy, as a mutable document tests can break on purpose."""
+    """A shipped policy, as a mutable document tests can break on purpose."""
     return yaml.safe_load(policy_path().read_text(encoding="utf-8"))
+
+
+@pytest.fixture
+def policy_document(policy) -> dict:
+    """The document behind the policy version currently under test."""
+    return yaml.safe_load(policy_path(policy.version).read_text(encoding="utf-8"))
 
 
 # ---------------------------------------------------------------------------
 # What ships
 # ---------------------------------------------------------------------------
-def test_policy_v1_is_the_default_and_exists():
-    assert DEFAULT_POLICY_VERSION == "policy-v1"
-    assert policy_path().exists()
-    assert policy_path().parent == POLICY_DIR
+def test_both_shipped_policies_are_discoverable():
+    """A policy file is never removed: cards name the version that judged them."""
+    assert available_policies() == ("policy-v1", "policy-v2")
+    for version in available_policies():
+        assert policy_path(version).exists()
+        assert policy_path(version).parent == POLICY_DIR
 
 
-def test_the_shipped_thresholds_are_the_documented_ones(policy):
-    """§3.8's rule table, as numbers."""
-    assert policy.psi_breach == 0.10
-    assert policy.psi_severe == 0.25
-    assert policy.consecutive_windows == 2
-    assert policy.alert_only_max_features == 2
-    assert policy.auto_proceed_confidence == 0.75
-    assert policy.matured_auroc_drop == 0.03
+def test_the_calibrated_policy_is_the_one_in_force():
+    """The roadmap requires the breach threshold to be calibrated on the control."""
+    assert DEFAULT_POLICY_VERSION == "policy-v2"
+    assert load_policy().version == "policy-v2"
+
+
+def test_policy_v1_transcribes_the_architecture_rule_table(policy_v1):
+    """§3.8's rule table, as numbers. Retained unedited: cards reference it."""
+    assert policy_v1.psi_breach == 0.10
+    assert policy_v1.psi_severe == 0.25
+    assert policy_v1.consecutive_windows == 2
+    assert policy_v1.alert_only_max_features == 2
+    assert policy_v1.auto_proceed_confidence == 0.75
+    assert policy_v1.matured_auroc_drop == 0.03
+
+
+def test_policy_v2_differs_from_v1_in_the_breach_threshold_and_nothing_else(policy_v1):
+    """The calibration is a threshold change, not a rule change.
+
+    RISK_ANALYSIS.md §1 freezes policy-v1 at six rules and sends improvements to
+    policy-v2; ARCHITECTURE.md §3.8 calls a threshold change "a reviewed pull
+    request -- that *is* the governance story". This test is what keeps the
+    change to exactly that.
+    """
+    v2 = load_policy("policy-v2")
+
+    assert v2.psi_breach == 0.20
+    assert v2.psi_breach > policy_v1.psi_breach
+
+    assert v2.psi_severe == policy_v1.psi_severe
+    assert v2.consecutive_windows == policy_v1.consecutive_windows
+    assert v2.alert_only_max_features == policy_v1.alert_only_max_features
+    assert v2.auto_proceed_confidence == policy_v1.auto_proceed_confidence
+    assert v2.matured_auroc_drop == policy_v1.matured_auroc_drop
+    assert v2.retrain_cooldown_days == policy_v1.retrain_cooldown_days
+    assert v2.retrain_budget == policy_v1.retrain_budget
+    assert v2.weights == policy_v1.weights
+    assert v2.precedence == policy_v1.precedence
+    assert v2.uncovered_breach_action == policy_v1.uncovered_breach_action
+    assert v2.acceptance_criteria == policy_v1.acceptance_criteria
+
+
+def test_the_calibrated_threshold_clears_the_measured_control_floor():
+    """The control's observed maximum is 0.1663 (medical_specialty, S5 w2).
+
+    The threshold must sit above it -- otherwise the calibration achieves
+    nothing -- and strictly below psi_severe, or rules 2 and 3 become
+    unreachable and the table loses two of its six rows.
+    """
+    v2 = load_policy("policy-v2")
+    assert v2.psi_breach > 0.1663
+    assert v2.psi_breach < v2.psi_severe
+
+
+def test_every_shipped_policy_keeps_the_six_rule_freeze(policy):
+    """RISK_ANALYSIS.md §1. A new version changes numbers, never the table."""
+    assert sorted(policy.precedence) == [1, 2, 3, 4, 5]
+    assert policy.uncovered_breach_action == "ALERT_ONLY"
 
 
 def test_the_shipped_confidence_weights_are_the_documented_ones(policy):
-    """policy-v1: w1=0.35, w2=0.20, w3=0.20, w4=0.25."""
+    """Unchanged across versions: w1=0.35, w2=0.20, w3=0.20, w4=0.25."""
     assert policy.weights.severity == 0.35
     assert policy.weights.breadth == 0.20
     assert policy.weights.persistence == 0.20
@@ -104,9 +163,10 @@ def test_a_file_whose_version_disagrees_with_its_name_is_refused(tmp_path, docum
         load_policy("policy-v1", directory=tmp_path)
 
 
-def test_a_policy_file_round_trips_from_disk(tmp_path, document, policy):
-    (tmp_path / "policy-v1.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
-    assert load_policy("policy-v1", directory=tmp_path) == policy
+def test_a_policy_file_round_trips_from_disk(tmp_path, policy_document, policy):
+    path = tmp_path / f"{policy.version}.yaml"
+    path.write_text(yaml.safe_dump(policy_document), encoding="utf-8")
+    assert load_policy(policy.version, directory=tmp_path) == policy
 
 
 def test_a_non_mapping_document_is_refused():

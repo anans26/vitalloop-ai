@@ -22,13 +22,25 @@ from loop.engine.card import (
 )
 from loop.engine.engine import card_id_for, decide
 from loop.engine.rules import ACTIONS, DISPOSITIONS
-from tests.engine.conftest import FIXED_NOW, WINDOW_START, feature_stat, make_evidence
+from tests.engine.conftest import (
+    FIXED_NOW,
+    WINDOW_START,
+    evidence_for,
+    feature_stat,
+    mild_psi,
+    quiet_psi,
+    severe_psi,
+)
 
 
 @pytest.fixture
 def card(policy) -> DecisionCard:
-    evidence = make_evidence(
-        stats=(feature_stat("num_lab_procedures", 0.30, ks_p=0.001), feature_stat("race", 0.01)),
+    evidence = evidence_for(
+        policy,
+        stats=(
+            feature_stat("num_lab_procedures", severe_psi(policy), ks_p=0.001),
+            feature_stat("race", quiet_psi(policy)),
+        ),
         consecutive=2,
         persistent=("num_lab_procedures",),
     )
@@ -122,7 +134,7 @@ def test_the_card_id_is_derived_from_the_event_and_the_policy():
 
 def test_the_card_id_does_not_depend_on_when_the_decision_was_taken(policy):
     """Re-evaluating a window tomorrow must produce the same card, not a second one."""
-    evidence = make_evidence(stats=(feature_stat("a", 0.30),))
+    evidence = evidence_for(policy, stats=(feature_stat("a", severe_psi(policy)),))
     early = decide(evidence, policy, now=FIXED_NOW)
     late = decide(evidence, policy, now=FIXED_NOW.replace(year=2027))
     assert early.card_id == late.card_id
@@ -155,10 +167,15 @@ def test_the_card_records_the_acceptance_criteria_before_any_training(card, poli
     assert "auroc_non_inferiority_margin" in card.acceptance_criteria
 
 
-def test_the_card_records_both_the_measured_and_the_policy_thresholds(card):
-    """What the monitor compared against, and what the policy compares against."""
+def test_the_card_records_both_the_measured_and_the_policy_thresholds(card, policy):
+    """What the monitor compared against, and what the policy compares against.
+
+    These are separate facts and both are on the record. The monitor measures at
+    0.10 so the evidence stays at full sensitivity; the policy decides at its
+    own calibrated threshold. A reader can see the gap without opening a config.
+    """
     assert card.trigger.measured_thresholds["psi_breach"] == 0.10
-    assert card.policy_thresholds["psi_breach"] == 0.10
+    assert card.policy_thresholds["psi_breach"] == policy.psi_breach
 
 
 def test_the_card_names_the_rule_that_fired_and_says_why(card):
@@ -170,17 +187,18 @@ def test_the_card_names_the_rule_that_fired_and_says_why(card):
 # Status
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize(
-    "psi, consecutive, expected",
+    "band, consecutive, expected",
     [
-        (0.01, 0, CARD_STATUS_CLOSED),
-        (0.12, 1, CARD_STATUS_CLOSED),
-        (0.12, 2, CARD_STATUS_OPEN),
-        (0.40, 1, CARD_STATUS_OPEN),
+        ("quiet", 0, CARD_STATUS_CLOSED),
+        ("mild", 1, CARD_STATUS_CLOSED),
+        ("mild", 2, CARD_STATUS_OPEN),
+        ("severe", 1, CARD_STATUS_OPEN),
     ],
 )
-def test_status_records_whether_downstream_work_remains(policy, psi, consecutive, expected):
-    evidence = make_evidence(
-        stats=(feature_stat("a", psi),), consecutive=consecutive, persistent=("a",)
+def test_status_records_whether_downstream_work_remains(policy, band, consecutive, expected):
+    psi = {"quiet": quiet_psi, "mild": mild_psi, "severe": severe_psi}[band](policy)
+    evidence = evidence_for(
+        policy, stats=(feature_stat("a", psi),), consecutive=consecutive, persistent=("a",)
     )
     assert decide(evidence, policy, now=FIXED_NOW).status == expected
 

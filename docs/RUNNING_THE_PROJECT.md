@@ -12,7 +12,7 @@
 **Current implementation stage:** end of Week 7 of a 12-week roadmap (`project_docs/IMPLEMENTATION_ROADMAP.md`). The repository contains the data plane (ingestion, validation, cleaning, features, DVC versioning), the model plane (LightGBM + isotonic calibration + SHAP, tracked and registered in MLflow), the serving plane (authenticated FastAPI `/predict` with fail-closed Postgres audit rows), and the first half of the loop — Evidently drift detection with the seeded S1–S5 benchmark, and the deterministic Decision Engine that turns each measured window into an auditable Decision Card. There is no retrain pipeline, no validation gate, no shadow deployment, no dashboard, and no LLM integration of any kind yet.
 
 **Current milestone (Week 7) exit criteria, both met:**
-- All five drift scenarios produce the card the policy table predicts, including `NO_OP` on the control's quiet window (§15.5).
+- All five drift scenarios produce the card the policy table predicts, including `NO_OP` on **every** control window (§15.5), after applying the threshold calibration the roadmap assigns to the control (§15.6).
 - Branch coverage on the Decision Engine is 99%, against the roadmap's ≥ 95% target (§10).
 
 ---
@@ -31,7 +31,7 @@ Only technologies **actually present in the repository today** are listed. Every
 | **DVC** | 3.67.1 | Hash-pinned data versioning without cloud credentials | Versions the raw and processed datasets via a **local** remote |
 | **ucimlrepo** | 0.0.7 | Official UCI ML Repository fetch helper | Downloads the primary dataset programmatically (`ml/data/ingest.py`) |
 | **Jupyter / ipykernel** | 1.0+ / 6.29+ | Interactive EDA | Runs `notebooks/01_eda.ipynb` |
-| **pytest** | 9.1.1 | Standard Python test runner | 523 tests: Week 2 data contract, Week 3 model/calibration/SHAP, Week 4 tracking/registry, Week 5 API/auth/audit contracts, Week 6 drift/PSI/scenario/persistence contracts, and Week 7 policy/confidence/card/decision contracts |
+| **pytest** | 9.1.1 | Standard Python test runner | 654 tests: Week 2 data contract, Week 3 model/calibration/SHAP, Week 4 tracking/registry, Week 5 API/auth/audit contracts, Week 6 drift/PSI/scenario/persistence contracts, and Week 7 policy/confidence/card/decision contracts (the rule table is re-verified against every shipped policy version) |
 | **ruff** | 0.16.8 | Fast combined linter/formatter | Enforced via `pyproject.toml`, the pre-commit hook, and CI (`check` + `format --check`) |
 | **pre-commit** | 4.6.2 | Runs ruff automatically on commit | Installed (`.git/hooks/pre-commit`); hook pinned to ruff v0.16.8 to match the pinned CLI |
 | **LightGBM** | 4.7.0 | Gradient boosting is the right tool for mid-size tabular clinical data (`project_docs/TECH_STACK.md`) | The Week 3 readmission classifier |
@@ -557,7 +557,7 @@ pytest -q tests/test_api_auth.py tests/test_api_predict.py          tests/test_a
 **How to verify the installation:**
 ```bash
 pytest -q
-# Expected: 523 passed
+# Expected: 654 passed
 ruff check .
 # Expected: All checks passed!
 ruff format --check .
@@ -614,9 +614,10 @@ print('No patient leakage across splits: OK')
 - **No governed promotion, and no shadow scoring.** The API serves the `champion` alias, but `challenger` and `shadow` remain unused: shadow dual-scoring is Week 9 middleware, and the validation gate and human approval arrive in Weeks 8–9. `champion` still means "the first registered version", not "a model that passed a gate".
 - **Serving latency is above target.** A warm `/predict` takes roughly 350 ms against the roadmap's < 200 ms goal; per-request SHAP dominates. The roadmap's own mitigations (batching, a cached explainer path) are not implemented.
 - **No retrain pipeline, no validation gate, no shadow deployment, no dashboard.** All Week 8+. The engine records `FULL_RETRAIN` and `INCREMENTAL_RETRAIN` as *recommendations on a card*; nothing acts on them, and no model is retrained or promoted.
-- **Policy rules 5 and 6 never fire on real data.** Rule 5 needs matured-label evidence that nothing produces yet; rule 6 needs the `retrain_runs` table, which is Week 8. Both branches exist and are unit-tested (§15.3).
+- **Policy rules 5 and 6 never fire on real data.** Rule 5 needs matured-label evidence that nothing produces yet; rule 6 needs the `retrain_runs` table, which is Week 8. Both branches exist and are unit-tested against both shipped policies (§15.3).
+- **The S1–S5 benchmark exercises rules 1 and 4 only.** After the control calibration, no benchmark scenario lands in the mild band that rules 2 and 3 read (§15.6). Those rules, and 5 and 6, are covered by unit tests rather than by the five scenarios.
 - **No delayed-label performance monitoring.** ARCHITECTURE.md §3.7 lists AUROC/recall on a matured-label window alongside input and prediction drift. Week 6 implements the two leading indicators only; the matured-label arm (and scenario S4's detection, as opposed to its injection) needs the label-latency handling that Weeks 7–8 introduce.
-- **The S5 control is not perfectly silent on this dataset** — see §14.4. Two administrative features drift genuinely across the serving stream, which is a finding about the UCI extract, not a bug in the monitor. Under policy-v1 that carries the control to an `INCREMENTAL_RETRAIN` recommendation by its third window (§15.6); the behaviour is bounded, tested and recorded rather than tuned away, and resolving it is a policy-v2 decision.
+- **The S5 control is not perfectly silent at the measurement layer** — see §14.4. Two administrative features drift genuinely across the serving stream, which is a finding about the UCI extract, not a bug in the monitor. The monitor still records that drift at its own 0.10 threshold; `policy-v2` calibrates the *decision* threshold on the control, as the roadmap requires, so the control produces `NO_OP` on every window without any evidence being altered (§15.6).
 - **No LLM/Gemini integration exists yet**, and the offline-LLM-vs-Gemini-mandate conflict (§7) is unresolved.
 - **No shared remote history** — commits exist locally and `origin` is configured, but the Week 1–3 history has not been pushed.
 - **Single-machine, local-only setup.** DVC's remote is a local directory (`dvc-storage/`, gitignored) — there is no shared/team remote configured.
@@ -646,8 +647,9 @@ print('No patient leakage across splits: OK')
 - MLflow service in Compose, UI on :5000; `vitalloop-readmission` v1 registered with the `champion` alias
 - `api/` + `db/` — authenticated FastAPI serving with JWT role claims, fail-closed PostgreSQL audit rows, health/readiness, and OpenAPI docs
 - `loop/monitor/` + `scenarios/` — Evidently drift monitoring per window (PSI/KS/prediction drift) against the frozen-evaluation launch reference, `drift_events` persistence, Evidently HTML report artifacts, an APScheduler worker, and the seeded S1–S5 benchmark
-- `configs/policy-v1.yaml` + `loop/engine/` — the deterministic Decision Engine: the versioned six-rule policy table, the decomposed confidence formula, the frozen Pydantic Decision Card, `decision_cards` persistence with idempotent re-evaluation, and the evaluator CLI
-- 523/523 pytest tests passing (99% branch coverage on the engine); `ruff check .` and `ruff format --check .` clean
+- `configs/policy-v1.yaml`, `configs/policy-v2.yaml` + `loop/engine/` — the deterministic Decision Engine: the versioned six-rule policy table, the decomposed confidence formula, the frozen Pydantic Decision Card, `decision_cards` persistence with idempotent re-evaluation, and the evaluator CLI
+- The control calibration the roadmap assigns to Week 6, applied as `policy-v2`: the S1–S5 benchmark now yields `FULL_RETRAIN` on S1–S3 in their first window and `NO_OP` on every control window (§15.6)
+- 654/654 pytest tests passing (99% branch coverage on the engine); `ruff check .` and `ruff format --check .` clean
 
 **In Progress:** nothing — Week 7 is a clean stopping point with no partially-built component.
 
@@ -886,18 +888,24 @@ refuses a policy the engine could not defend — weights that do not sum to 1.0,
 breach threshold above the severe threshold, a one-window "persistence" rule, a
 precedence that does not order exactly rules 1–5.
 
-**A new policy is a new file.** `policy-v1.yaml` is never edited once cards
-reference it, because `decision_cards.policy_version` is only meaningful if the
-artifact it names still says what it said at emission. Re-evaluating history
-under `policy-v2` produces a *distinct* card per window — that is the governance
-feature, not a duplicate.
+**A new policy is a new file.** A policy is never edited once cards reference
+it, because `decision_cards.policy_version` is only meaningful if the artifact
+it names still says what it said at emission. Re-evaluating history under a new
+version produces a *distinct* card per window — that is the governance feature,
+not a duplicate.
 
-#### The rule table (policy-v1)
+Two policies ship. **`policy-v1`** is ARCHITECTURE.md §3.8's literal
+transcription, retained unedited because cards were emitted under it.
+**`policy-v2`** is the policy in force: the same six rules with `psi_breach`
+calibrated on the no-drift control, as the roadmap requires (§15.6). Select one
+with `--policy` or `VITALLOOP_POLICY_VERSION`.
+
+#### The rule table (unchanged across policy versions)
 
 | # | Condition | Action | Disposition |
 |---|---|---|---|
-| 1 | No feature PSI ≥ 0.10, no prediction drift | `NO_OP` | — |
-| 2 | 1–2 features 0.10 ≤ PSI < 0.25, no prediction drift, first window | `ALERT_ONLY` | — |
+| 1 | No feature PSI ≥ `psi_breach`, no prediction drift | `NO_OP` | — |
+| 2 | 1–2 features `psi_breach` ≤ PSI < 0.25, no prediction drift, first window | `ALERT_ONLY` | — |
 | 3 | Same features breach ≥ 2 consecutive windows | `INCREMENTAL_RETRAIN` | auto → shadow |
 | 4 | Any PSI ≥ 0.25 **or** prediction drift | `FULL_RETRAIN` | auto → shadow if confidence ≥ 0.75, else escalate |
 | 5 | Matured-label AUROC drop > 0.03 vs launch | `FULL_RETRAIN` | **always** escalate to human |
@@ -984,60 +992,114 @@ had to widen it would not break every card already emitted.
 ### 15.5 The benchmark, as decided
 
 All 17 Week 6 windows, evaluated with `python -m loop.engine.evaluate` against
-the recorded `drift_events` rows:
+the recorded `drift_events` rows, under the policy in force (`policy-v2`):
 
 | Scenario | w0 | w1 | w2 |
 |---|---|---|---|
-| **S1** covariate | rule 4 → `FULL_RETRAIN` / escalate (0.402) | rule 4 → `FULL_RETRAIN` / escalate (0.480) | rule 4 → `FULL_RETRAIN` / escalate (0.567) |
-| **S2** coding | rule 4 → `FULL_RETRAIN` / escalate (0.486) | rule 4 → `FULL_RETRAIN` / escalate (0.579) | rule 4 → `FULL_RETRAIN` / escalate (0.624) |
-| **S3** prevalence | rule 4 → `FULL_RETRAIN` / escalate (0.468) | rule 4 → `FULL_RETRAIN` / escalate (0.569) | rule 4 → `FULL_RETRAIN` / escalate (0.681) |
-| **S4** label drift | rule 1 → `NO_OP` (0.187) | rule 2 → `ALERT_ONLY` (0.297) | rule 3 → `INCREMENTAL_RETRAIN` / shadow (0.391) |
-| **S5** control | rule 1 → `NO_OP` (0.187) | rule 2 → `ALERT_ONLY` (0.297) | rule 3 → `INCREMENTAL_RETRAIN` / shadow (0.391) |
+| **S1** covariate | rule 4 -> `FULL_RETRAIN` / escalate (0.394) | (0.456) | (0.543) |
+| **S2** coding | rule 4 -> `FULL_RETRAIN` / escalate (0.486) | (0.563) | (0.608) |
+| **S3** prevalence | rule 4 -> `FULL_RETRAIN` / escalate (0.460) | (0.553) | (0.673) |
+| **S4** label drift | rule 1 -> `NO_OP` (0.187) | rule 1 -> `NO_OP` (0.214) | rule 1 -> `NO_OP` (0.241) |
+| **S5** control | rule 1 -> `NO_OP` (0.187) | rule 1 -> `NO_OP` (0.214) | rule 1 -> `NO_OP` (0.241) |
 
-Each injected scenario is caught by the rule that matches its mechanism, and S4
-decides identically to S5 — correct, because S4 moves labels rather than
-features and rule 5 has no matured labels to read. **No card auto-proceeds:**
-every `FULL_RETRAIN` escalates, because leading-indicator confidence tops out
-below 0.75.
+This is the Week 7 deliverable in full: every injected scenario is caught by the
+rule matching its mechanism, in its **first** window; the control is silent on
+every window; and S4 decides identically to S5, because it moves labels rather
+than features and rule 5 has no matured labels to read.
 
-### 15.6 The Week 6 control floor, under the documented policy
+**No card auto-proceeds.** Leading-indicator confidence tops out at 0.875, and
+the benchmark's maximum is 0.673, so every `FULL_RETRAIN` escalates to a human.
+
+For comparison, the same rows under the uncalibrated `policy-v1` - the reading
+that motivated the calibration - are in §15.6.
+
+### 15.6 The control calibration (policy-v2)
 
 Week 6 recorded that the *untouched* S5 stream breaches on `payer_code`
-(0.11–0.13) and `medical_specialty` (0.13–0.17) from window 1 onward — real
+(0.11-0.13) and `medical_specialty` (0.13-0.17) from window 1 onward - real
 drift in the UCI extract, in features ranked 7th and 11th by global SHAP
-(§14.4). Week 7 did not change a threshold, drop a feature, or special-case S5.
-It applied policy-v1 and recorded what happened:
+(§14.4). Applying policy-v1 to those rows gives `NO_OP` -> `ALERT_ONLY` ->
+`INCREMENTAL_RETRAIN`: **a retrain recommendation on a stream where nothing was
+injected.**
 
-- **w0** — nothing breaches → rule 1 → `NO_OP`.
-- **w1** — two mild breaches in their first window → rule 2 → `ALERT_ONLY`.
-- **w2** — *the same two features again* → rule 3 → `INCREMENTAL_RETRAIN`,
-  disposition auto → shadow.
+That is the "cries wolf" outcome the risk register names, and the authoritative
+documents prescribe the remedy in five places:
 
-**So the untouched control reaches a retrain recommendation.** The persistence
-rule is working exactly as written; the drift it is reacting to is real and
-persistent rather than noisy, which is precisely the case rule 3 was designed to
-catch. What policy-v1 has no mechanism for is a feature that drifts *genuinely
-but harmlessly* — there is no per-feature baseline, no suppression list, and no
-minimum-severity floor under rule 3.
+| Source | Instruction |
+|---|---|
+| `IMPLEMENTATION_ROADMAP.md`, Week 6 risks | "threshold tuning noise -> **calibrate PSI thresholds on the no-drift control** week-6, not demo-day" |
+| `PROJECT_DESIGN.md` §9, Week 6 outcome | "Reproducible drift benchmark; **thresholds calibrated on control**" |
+| `PROJECT_DESIGN.md` §12, risks | "Threshold mis-tuning \| ... \| **Calibrated on the no-drift control (S5)**; persistence rule filters noise" |
+| `PROJECT_DESIGN.md` §13, expected results | "drift detection within one monitoring window on S1-S3; **zero false triggers on the control**" |
+| `RISK_ANALYSIS.md` §2 | "**Thresholds calibrated on the no-drift control (S5) in week 6**; persistence rule (2 consecutive windows) filters noise" |
 
-The documents do not say how this should be resolved, so Week 7 has not invented
-a resolution. What it has done is bound the blast radius and make the behaviour
-inspectable:
+So the conflict was never between the rule table and the deliverable. It was
+that **the calibration step the roadmap assigns was measured in Week 6 and
+never applied**; policy-v1 transcribes §3.8's uncalibrated 0.10 verbatim. The
+design expects *both* mechanisms - a calibrated threshold **and** the
+persistence rule. Persistence is there to filter noise; it was never meant to
+be the thing that converts genuine-but-harmless drift into a retrain.
 
-- The control never reaches `FULL_RETRAIN` — rule 4 needs PSI 0.25 or prediction
-  drift, and the control has neither.
-- The disposition is `AUTO_PROCEED_SHADOW`, so the worst outcome is a challenger
-  queued for the shadow slot. Autonomy stops at shadow; nothing reaches
-  clinicians without the Week 8 gate and a Week 9 human approval.
-- Confidence stays at 0.391, far below the 0.75 auto-proceed line.
-- `tests/engine/test_evaluate.py` asserts this three-card sequence against the
-  measured numbers, so changing it is a deliberate policy-v2 decision with a
-  failing test to force the conversation — not a quiet edit.
+#### What was calibrated
 
-The options a policy-v2 could take are a per-feature baseline, a minimum
-severity under rule 3, or an explicit exclusion with a recorded rationale. All
-three are policy choices that belong to a reviewed change to `configs/`, which
-is the governance story this design is built around.
+Measured on the untouched stream (S5, S4 and `live` share identical feature
+distributions - S4 moves only labels), three 2000-row windows:
+
+| Feature | w0 | w1 | w2 |
+|---|---|---|---|
+| `medical_specialty` | 0.0622 | 0.1249 | **0.1663** |
+| `payer_code` | 0.0885 | 0.1278 | 0.1125 |
+| every other feature | < 0.07 | < 0.07 | < 0.07 |
+
+Against the injected signals on the same windows:
+
+| Scenario | feature | w0 | w1 | w2 |
+|---|---|---|---|---|
+| S1 | `num_lab_procedures` | 0.2777 | 0.2713 | 0.2998 |
+| S2 | `A1Cresult` | 0.4086 | 0.4231 | 0.3931 |
+| S3 | `age` | 0.3717 | 0.3984 | 0.4519 |
+
+Any threshold in **(0.1663, 0.25)** separates the two. `policy-v2` takes the
+control maximum rounded up to the next 0.05 - **`psi_breach: 0.20`** - leaving
+~20% headroom for sampling variation while staying strictly below `psi_severe`,
+which is left at §3.8's 0.25 untouched.
+
+#### What was not changed
+
+- **The six rules, the precedence, the confidence formula and its weights, the
+  consecutive-window count, and `psi_severe`** are byte-identical between the
+  two policies. `RISK_ANALYSIS.md` §1 freezes policy-v1 at six rules and sends
+  improvements to policy-v2; this is a *threshold* change in a reviewable diff,
+  which is exactly what §3.8 calls the governance story.
+  `test_policy_v2_differs_from_v1_in_the_breach_threshold_and_nothing_else`
+  keeps it that way.
+- **Week 6's measurement.** No PSI, KS or prediction-drift calculation was
+  touched, no scenario redefined, no drift event deleted, and no threshold in
+  `loop/monitor/config.py` moved. The monitor still measures at 0.10, so
+  `drift_events` still records `payer_code` and `medical_specialty` as
+  breaching. Only the line at which the *policy* calls a breach actionable
+  moved.
+- **The raw S5 evidence.** The rows are the same rows. Every card carries both
+  numbers - `trigger.measured_thresholds` (the monitor's 0.10) and
+  `policy_thresholds` (the policy's 0.20) - so the gap between what was
+  observed and what was deemed actionable is on the audit trail rather than
+  buried in a config file.
+- **`configs/policy-v1.yaml`.** Retained unedited and still loadable: cards
+  were emitted under it, and §3.8 requires a card's policy version to still say
+  what it said at emission. Re-running the evaluator emits a second, distinct
+  card per window under policy-v2 - replaying history under a new policy is the
+  governance feature, not a duplicate.
+
+#### The cost, stated plainly
+
+Specificity was bought with sensitivity. Under policy-v2 a feature that moves
+between 0.10 and 0.20 no longer reaches a card: S1's `num_medications`
+(0.12-0.14) is measured and recorded but no longer counted as breaching, so
+S1's cards name `num_lab_procedures` alone and carry slightly lower confidence.
+Detection is unaffected - every injected scenario is still caught in its first
+window - but the benchmark now exercises **rules 1 and 4 only**. Rules 2, 3, 5
+and 6 are covered by unit tests against both shipped policies rather than by
+the five scenarios.
 
 ### 15.7 Privacy
 

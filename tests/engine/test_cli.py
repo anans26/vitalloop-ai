@@ -11,7 +11,7 @@ import pytest
 from loop.engine import evaluate as evaluate_module
 from loop.engine.evaluate import build_parser, candidate_data_version, main
 from loop.engine.evidence import DriftEvidence, FeatureBreach
-from loop.engine.policy import parse_policy
+from loop.engine.policy import DEFAULT_POLICY_VERSION, parse_policy
 from loop.engine.rules import rule_2_first_window_mild
 from tests.engine.conftest import WINDOW_START, feature_stat, make_evidence
 from tests.engine.test_evaluate import CONTROL_WINDOWS, cards, seed_stream
@@ -30,7 +30,7 @@ def cli(drift_db, monkeypatch):
 # ---------------------------------------------------------------------------
 def test_the_parser_defaults_to_the_shipped_policy():
     args = build_parser().parse_args([])
-    assert args.policy == "policy-v1"
+    assert args.policy == DEFAULT_POLICY_VERSION
     assert args.scenario is None
     assert args.dry_run is False
 
@@ -40,9 +40,8 @@ def test_the_cli_evaluates_pending_windows_and_reports_them(cli, capsys):
 
     assert main([]) == 0
     output = capsys.readouterr().out
-    assert "policy policy-v1: 3 window(s) evaluated" in output
+    assert f"policy {DEFAULT_POLICY_VERSION}: 3 window(s) evaluated" in output
     assert "NO_OP" in output
-    assert "INCREMENTAL_RETRAIN" in output
     assert len(cards(cli)) == 3
 
 
@@ -107,7 +106,7 @@ def test_an_unreadable_dvc_lock_yields_no_candidate_version(monkeypatch):
 # ---------------------------------------------------------------------------
 # Guards only a malformed input reaches
 # ---------------------------------------------------------------------------
-def test_a_policy_with_an_empty_version_is_refused(policy):
+def test_a_policy_with_an_empty_version_is_refused():
     import yaml
 
     from loop.engine.policy import PolicyError, policy_path

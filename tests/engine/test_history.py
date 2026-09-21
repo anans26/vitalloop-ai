@@ -215,11 +215,12 @@ def test_a_decided_window_stops_being_pending(drift_db, policy):
 
 
 def test_a_different_policy_version_sees_the_window_as_pending_again(drift_db, policy):
-    """Replaying history under policy-v2 is the governance story, not a duplicate."""
+    """Replaying history under a new policy is the governance story, not a duplicate."""
     event = make_event(drift_db, index=0, stats=(feature_stat("a", 0.30),))
     record_decision(drift_db, decide(evidence_for(drift_db, event, policy), policy))
 
-    assert [e.event_id for e in events_without_cards(drift_db, "policy-v2")] == [event.event_id]
+    other = "policy-v1" if policy.version != "policy-v1" else "policy-v2"
+    assert [e.event_id for e in events_without_cards(drift_db, other)] == [event.event_id]
 
 
 def test_pending_windows_come_back_oldest_first(drift_db, policy):

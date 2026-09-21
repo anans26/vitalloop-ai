@@ -7,9 +7,12 @@ is the only place the engine gets a number from. There is no default threshold
 anywhere in `loop/engine/`: a missing key in the YAML is a load-time failure,
 not a silent fallback to something a reviewer never approved.
 
-A new policy is a new file. `policy-v1.yaml` is never edited once cards
-reference it, because `decision_cards.policy_version` is only meaningful if the
-artifact it names still says what it said at emission.
+A new policy is a new file, and an old one is never edited once cards reference
+it: `decision_cards.policy_version` is only meaningful if the artifact it names
+still says what it said at emission. `policy-v1` is therefore retained
+unchanged as ARCHITECTURE.md §3.8's literal transcription, and `policy-v2` --
+the same six rules with the breach threshold calibrated on the no-drift
+control, as the roadmap requires -- is what the system decides with.
 """
 
 from dataclasses import dataclass
@@ -21,7 +24,12 @@ import yaml
 from ml.config import PROJECT_ROOT
 
 POLICY_DIR = PROJECT_ROOT / "configs"
-DEFAULT_POLICY_VERSION = "policy-v1"
+
+# The policy in force. policy-v1 remains on disk and loadable -- cards emitted
+# under it must stay re-derivable -- but policy-v2 carries the control
+# calibration the roadmap's Week 6 risk line requires, so it is what new
+# decisions are taken under.
+DEFAULT_POLICY_VERSION = "policy-v2"
 
 
 class PolicyError(RuntimeError):
@@ -81,6 +89,15 @@ class Policy:
 
 def policy_path(version: str = DEFAULT_POLICY_VERSION, directory: Path = POLICY_DIR) -> Path:
     return directory / f"{version}.yaml"
+
+
+def available_policies(directory: Path = POLICY_DIR) -> tuple[str, ...]:
+    """Every policy version on disk, oldest first.
+
+    A policy file is never removed once a card names it, so this is also the
+    set of versions whose cards can still be re-derived.
+    """
+    return tuple(sorted(path.stem for path in directory.glob("policy-v*.yaml")))
 
 
 def _require(mapping: dict, key: str, where: str):

@@ -168,8 +168,10 @@ def test_a_tick_emits_one_decision_card_for_the_window_it_measured(cycle, drift_
 
 def test_the_worker_loads_the_policy_at_startup(cycle):
     """A monitor that silently stopped deciding would look like a quiet stream."""
+    from loop.engine.policy import DEFAULT_POLICY_VERSION
+
     assert cycle.policy is not None
-    assert cycle.policy.version == "policy-v1"
+    assert cycle.policy.version == DEFAULT_POLICY_VERSION
 
 
 def test_a_quiet_window_still_produces_a_card(cycle, drift_db):

@@ -1,10 +1,11 @@
 """Week 6 rows in, `decision_cards` rows out -- the whole Week 7 seam.
 
 Including the case the Week 6 report flagged: the untouched S5 control stream
-produces genuine PSI breaches in two administrative features, and this file
-asserts what **policy-v1 as documented** makes of them. The Week 6 thresholds
-and statistics are used exactly as measured; nothing is special-cased to make
-the control look quieter than it is.
+produces genuine PSI breaches in two administrative features. Both readings are
+asserted here -- what the uncalibrated policy-v1 makes of them (the finding that
+motivated the calibration) and what the calibrated policy-v2 makes of them (the
+Week 7 deliverable). The Week 6 statistics are used exactly as measured;
+nothing is special-cased to make the control look quieter than it is.
 """
 
 from datetime import timedelta
@@ -23,7 +24,7 @@ from loop.engine.persistence import (
     record_decision,
 )
 from loop.engine.rules import ALERT_ONLY, ESCALATE_HUMAN, FULL_RETRAIN, INCREMENTAL_RETRAIN, NO_OP
-from tests.engine.conftest import WINDOW_START, feature_stat
+from tests.engine.conftest import WINDOW_START, feature_stat, mild_psi
 
 WINDOW = timedelta(days=1)
 
@@ -139,22 +140,22 @@ def test_a_window_is_decided_from_the_measurements_not_re_measured(drift_db, pol
 # ---------------------------------------------------------------------------
 # The Week 6 natural control floor, under the documented policy
 # ---------------------------------------------------------------------------
-def test_the_control_stream_escalates_by_the_documented_persistence_rule(drift_db, policy):
-    """What policy-v1 makes of Week 6's measured S5 control.
+def test_the_uncalibrated_policy_escalates_on_the_control(drift_db, policy_v1):
+    """What policy-v1 makes of Week 6's measured S5 control -- the finding.
 
     Window 0 is quiet -> rule 1 -> NO_OP.
     Window 1 has two mild breaches in their first window -> rule 2 -> ALERT_ONLY.
     Window 2 has the same two features again -> rule 3 -> INCREMENTAL_RETRAIN.
 
-    The third line is the finding: the untouched control reaches a retrain
-    recommendation under the documented rule table, because the drift in
+    The third line is why policy-v2 exists: at §3.8's uncalibrated 0.10 the
+    untouched control reaches a retrain recommendation, because the drift in
     `payer_code` and `medical_specialty` is real and persistent rather than
-    noisy. This test records that rather than suppressing it -- changing it is
-    a policy-v2 decision, not a test fix.
+    noisy. The rule table is not at fault -- rule 3 is doing exactly what it
+    says -- so the remedy the roadmap prescribes is the threshold calibration,
+    not a rule change. This test keeps the original behaviour on the record.
     """
-    events = seed_stream(drift_db, "S5", CONTROL_WINDOWS)
-    for event in events:
-        evaluate_event(drift_db, event, policy)
+    for event in seed_stream(drift_db, "S5", CONTROL_WINDOWS):
+        evaluate_event(drift_db, event, policy_v1)
 
     assert [card.action for card in cards(drift_db, "S5")] == [
         NO_OP,
@@ -162,6 +163,41 @@ def test_the_control_stream_escalates_by_the_documented_persistence_rule(drift_d
         INCREMENTAL_RETRAIN,
     ]
     assert [card.rule_id for card in cards(drift_db, "S5")] == ["1", "2", "3"]
+
+
+def test_the_calibrated_policy_is_silent_on_the_control(drift_db, active_policy):
+    """The Week 7 deliverable: "`NO_OP` on control", on the same measured rows.
+
+    Nothing about the evidence changed -- these are Week 6's numbers, and the
+    monitor still records `payer_code` and `medical_specialty` as breaching at
+    its own 0.10. What changed is the threshold the *policy* deems actionable,
+    calibrated on this very stream exactly as the roadmap's Week 6 risk line
+    and RISK_ANALYSIS.md §2 require.
+    """
+    for event in seed_stream(drift_db, "S5", CONTROL_WINDOWS):
+        evaluate_event(drift_db, event, active_policy)
+
+    assert [card.action for card in cards(drift_db, "S5")] == [NO_OP, NO_OP, NO_OP]
+    assert [card.rule_id for card in cards(drift_db, "S5")] == ["1", "1", "1"]
+    assert all(card.breaching_feature_count == 0 for card in cards(drift_db, "S5"))
+
+
+def test_the_control_evidence_is_untouched_by_the_calibration(drift_db, active_policy):
+    """Calibrating the decision must not quietly edit the measurement.
+
+    The drift rows still carry `payer_code` and `medical_specialty` above 0.10,
+    and the card still records the monitor's threshold beside the policy's, so
+    the gap between "observed" and "actionable" is on the audit trail.
+    """
+    events = seed_stream(drift_db, "S5", CONTROL_WINDOWS)
+    breaching = [stat["feature"] for stat in events[2].feature_stats if stat["psi"] >= 0.10]
+    assert sorted(breaching) == ["medical_specialty", "payer_code"]
+    assert events[2].breaching_feature_count == 2
+
+    card, _ = evaluate_event(drift_db, events[2], active_policy)
+    assert card.trigger.measured_thresholds["psi_breach"] == 0.10
+    assert card.policy_thresholds["psi_breach"] == active_policy.psi_breach
+    assert card.trigger.max_psi == events[2].max_psi
 
 
 def test_the_control_never_reaches_a_full_retrain(drift_db, policy):
@@ -173,13 +209,14 @@ def test_the_control_never_reaches_a_full_retrain(drift_db, policy):
     assert all(card.prediction_drift is False for card in cards(drift_db, "S5"))
 
 
-def test_the_control_escalation_is_shadow_bound_not_a_silent_promotion(drift_db, policy):
-    """Autonomy stops at shadow: the worst the control can do is queue a challenger."""
+def test_any_control_escalation_is_shadow_bound_not_a_silent_promotion(drift_db, policy):
+    """Autonomy stops at shadow under every policy: at worst a queued challenger."""
     for event in seed_stream(drift_db, "S5", CONTROL_WINDOWS):
         evaluate_event(drift_db, event, policy)
 
-    retrain = [card for card in cards(drift_db, "S5") if card.action == INCREMENTAL_RETRAIN]
-    assert [card.disposition for card in retrain] == ["AUTO_PROCEED_SHADOW"]
+    for card in cards(drift_db, "S5"):
+        assert card.disposition in {"NONE", "AUTO_PROCEED_SHADOW"}
+        assert card.action != FULL_RETRAIN
 
 
 def test_the_control_and_an_injected_scenario_are_distinguishable(drift_db, policy):
@@ -269,14 +306,20 @@ def test_a_dry_run_decides_without_writing(drift_db, policy):
 # ---------------------------------------------------------------------------
 def test_a_backlog_is_evaluated_oldest_first_so_persistence_is_correct(drift_db, policy):
     """Deciding window 2 before window 1 would give it a history that lacks window 1."""
-    events = seed_stream(drift_db, "S5", CONTROL_WINDOWS)
+    mild = mild_psi(policy)
+    windows = [(("payer_code", mild),), (("payer_code", mild),), (("payer_code", mild),)]
+    events = seed_stream(drift_db, "S5", windows)
     assert [event.window_start for event in events] == sorted(
         event.window_start for event in events
     )
 
     evaluate_pending(drift_db, policy)
     persisted = cards(drift_db, "S5")
-    assert persisted[2].card_json["trigger"]["consecutive_breaching_windows"] == 2
+    assert [card.card_json["trigger"]["consecutive_breaching_windows"] for card in persisted] == [
+        1,
+        2,
+        3,
+    ]
 
 
 def test_one_stream_can_be_evaluated_without_touching_another(drift_db, policy):
@@ -336,7 +379,7 @@ def test_find_existing_locates_the_card_for_a_window_and_policy(drift_db, policy
     evaluate_event(drift_db, event, policy)
 
     assert find_existing(drift_db, event.event_id, policy.version) is not None
-    assert find_existing(drift_db, event.event_id, "policy-v2") is None
+    assert find_existing(drift_db, event.event_id, "policy-v99") is None
     assert find_existing(drift_db, "de-nope", policy.version) is None
 
 

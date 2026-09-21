@@ -91,7 +91,7 @@ services:
       VITALLOOP_MONITOR_MAX_WINDOWS: ${VITALLOOP_MONITOR_MAX_WINDOWS:-}
       # Week 7: the same worker decides each window it measures
       # (ARCHITECTURE.md §5 -- "drift job + decision engine").
-      VITALLOOP_POLICY_VERSION: ${VITALLOOP_POLICY_VERSION:-policy-v1}
+      VITALLOOP_POLICY_VERSION: ${VITALLOOP_POLICY_VERSION:-policy-v2}
       # "local" reads the DVC-tracked artifact mounted below; set "mlflow" to
       # score with the registered champion instead.
       VITALLOOP_MODEL_SOURCE: ${VITALLOOP_MONITOR_MODEL_SOURCE:-local}

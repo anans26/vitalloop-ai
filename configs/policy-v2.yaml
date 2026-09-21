@@ -1,0 +1,127 @@
+# policy-v2 -- policy-v1 with its PSI breach threshold calibrated on the control.
+#
+# WHY THIS FILE EXISTS
+#
+# The roadmap and the risk register both require the breach threshold to be
+# calibrated against the no-drift control, and say so five times:
+#
+#   IMPLEMENTATION_ROADMAP.md, Week 6 risks
+#     "threshold tuning noise -> calibrate PSI thresholds on the no-drift
+#      control week-6, not demo-day."
+#   PROJECT_DESIGN.md §9 (weekly outcomes, Week 6)
+#     "Reproducible drift benchmark; thresholds calibrated on control"
+#   PROJECT_DESIGN.md §12 (risks)
+#     "Threshold mis-tuning | ... | Calibrated on the no-drift control (S5);
+#      persistence rule filters noise"
+#   PROJECT_DESIGN.md §13 (expected results)
+#     "drift detection within one monitoring window on S1-S3; zero false
+#      triggers on the control"
+#   RISK_ANALYSIS.md §2
+#     "Thresholds calibrated on the no-drift control (S5) in week 6;
+#      persistence rule (2 consecutive windows) filters noise"
+#
+# That calibration step was measured in Week 6 but never applied. policy-v1
+# transcribes ARCHITECTURE.md §3.8's uncalibrated 0.10, and against the real
+# control stream it produces NO_OP -> ALERT_ONLY -> INCREMENTAL_RETRAIN: a
+# retrain recommendation on a window where nothing was injected. That is the
+# "cries wolf" outcome the risk register names, and the documented remedy is
+# this file.
+#
+# WHAT WAS CALIBRATED, AND AGAINST WHAT
+#
+# Measured on the untouched serving stream (scenarios S5, S4 and `live`, which
+# share identical feature distributions by construction -- S4 moves only
+# labels), three 2000-row windows against the frozen-evaluation reference:
+#
+#   medical_specialty   0.0622 / 0.1249 / 0.1663   <- control maximum
+#   payer_code          0.0885 / 0.1278 / 0.1125
+#   every other feature                    < 0.07
+#
+# The control's observed maximum is 0.1663. The injected scenarios' own
+# signals, on the same windows, are:
+#
+#   S1 num_lab_procedures   0.2777 / 0.2713 / 0.2998
+#   S2 A1Cresult            0.4086 / 0.4231 / 0.3931
+#   S3 age                  0.3717 / 0.3984 / 0.4519  (+ prediction drift)
+#
+# So a breach threshold anywhere in (0.1663, 0.25) separates injected drift
+# from the control floor. `psi_breach` is set to the control maximum rounded up
+# to the next 0.05 -- 0.20 -- which leaves ~20% headroom for sampling variation
+# while staying strictly below the severe line. Regenerate the inputs with
+# `python -m scenarios.run_scenario S5 --windows 3`.
+#
+# WHAT WAS NOT CHANGED
+#
+# The six rules, their precedence, the confidence formula and its weights, the
+# consecutive-window count, and `psi_severe` are identical to policy-v1.
+# RISK_ANALYSIS.md §1 freezes policy-v1 at six rules and sends improvements to
+# policy-v2; this is a threshold change, in a reviewable diff, exactly as
+# ARCHITECTURE.md §3.8 describes the governance story. `psi_severe` in
+# particular is left at §3.8's 0.25: the line above which a single feature is
+# actionable on its own was never the thing that misfired.
+#
+# The *monitor* still measures at 0.10 (`loop/monitor/config.py`), so
+# `drift_events` continues to record `payer_code` and `medical_specialty` as
+# breaching and nothing is hidden from the audit trail. Every card carries both
+# numbers -- `trigger.measured_thresholds` and `policy_thresholds` -- so the
+# gap between what was observed and what was deemed actionable is visible on
+# the record rather than buried in a config file.
+#
+# policy-v1.yaml is retained unedited. Cards emitted under it name it, and
+# ARCHITECTURE.md §3.8 requires a card's policy version to still say what it
+# said at emission.
+
+version: policy-v2
+
+description: >-
+  policy-v1 with psi_breach calibrated on the no-drift control (S5 maximum
+  0.1663, rounded up to 0.20). Six rules, unchanged; confidence formula,
+  precedence and psi_severe unchanged.
+
+# ---------------------------------------------------------------------------
+# Thresholds
+# ---------------------------------------------------------------------------
+thresholds:
+  # CALIBRATED. Above the control's observed maximum of 0.1663, below the
+  # severe line. This is the only value that differs from policy-v1.
+  psi_breach: 0.20
+  # Unchanged from ARCHITECTURE.md §3.8.
+  psi_severe: 0.25
+  consecutive_windows: 2
+  alert_only_max_features: 2
+  auto_proceed_confidence: 0.75
+  matured_auroc_drop: 0.03
+  retrain_cooldown_days: 7
+  retrain_budget: 1
+
+# ---------------------------------------------------------------------------
+# Confidence formula -- identical to policy-v1 (ARCHITECTURE.md §3.8)
+# ---------------------------------------------------------------------------
+confidence:
+  weights:
+    severity: 0.35
+    breadth: 0.20
+    persistence: 0.20
+    evidence: 0.25
+  severity_scale: 0.5
+  persistence_scale: 3
+  evidence:
+    matured_labels: 1.0
+    leading_indicators: 0.5
+
+# ---------------------------------------------------------------------------
+# Rule precedence -- identical to policy-v1
+# ---------------------------------------------------------------------------
+precedence: [5, 4, 3, 2, 1]
+
+uncovered_breach_action: ALERT_ONLY
+
+# ---------------------------------------------------------------------------
+# Acceptance criteria -- identical to policy-v1 (ARCHITECTURE.md §3.12)
+# ---------------------------------------------------------------------------
+acceptance_criteria:
+  auroc_non_inferiority_margin: 0.005
+  recall_top_decile_min_ratio: 1.0
+  max_brier_increase: 0.005
+  max_ece: 0.05
+  max_subgroup_auroc_drop: 0.01
