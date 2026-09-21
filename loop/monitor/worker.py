@@ -22,7 +22,7 @@ Configuration is environment-only, the same way the API is configured:
     VITALLOOP_MONITOR_INTERVAL_SECONDS  seconds between windows (default: 300)
     VITALLOOP_MONITOR_MAX_WINDOWS       stop after N windows (default: unlimited)
     VITALLOOP_MODEL_SOURCE              local | mlflow (default: local)
-    VITALLOOP_POLICY_VERSION            decision policy to apply (default: policy-v1)
+    VITALLOOP_POLICY_VERSION            decision policy to apply (default: policy-v2)
 
 Week 7 adds the second half of ARCHITECTURE.md §5's `monitor` service -- "drift
 job + decision engine". Each tick measures a window, writes its `drift_events`

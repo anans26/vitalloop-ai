@@ -1,18 +1,28 @@
-"""The policy-v1 rule table, as a pure function.
+"""The six-rule policy table, as a pure function.
 
-ARCHITECTURE.md §3.8 / PROJECT_DESIGN.md §4.2:
+ARCHITECTURE.md §3.8 / PROJECT_DESIGN.md §4.2, with every threshold named rather
+than inlined. §3.8 writes the table with policy-v1's numbers (`psi_breach` 0.10,
+`psi_severe` 0.25); policy-v2 calibrates `psi_breach` on the no-drift control,
+as the roadmap's Week 6 risk line requires. The rules are identical across both
+versions -- only the numbers they read differ, which is the point.
 
-| # | Condition                                    | Action                | Disposition           |
-|---|----------------------------------------------|-----------------------|-----------------------|
-| 1 | No feature PSI >= 0.10, no prediction drift  | `NO_OP`               | --                    |
-| 2 | 1-2 features 0.10 <= PSI < 0.25, no          | `ALERT_ONLY`          | --                    |
-|   | prediction drift, first window               |                       |                       |
-| 3 | Same features breach >= 2 consecutive windows| `INCREMENTAL_RETRAIN` | auto -> shadow        |
-| 4 | Any PSI >= 0.25 **or** prediction drift      | `FULL_RETRAIN`        | auto -> shadow if     |
-|   |                                              |                       | confidence >= 0.75,   |
-|   |                                              |                       | else escalate         |
-| 5 | Matured-label AUROC drop > 0.03 vs launch    | `FULL_RETRAIN`        | escalate to human     |
-| 6 | Retrained < X days ago **or** budget spent   | downgrade `ALERT_ONLY`| escalate              |
+| # | Condition                            | Action                 | Disposition              |
+|---|--------------------------------------|------------------------|--------------------------|
+| 1 | No feature PSI >= `psi_breach`, no   | `NO_OP`                | --                       |
+|   | prediction drift                     |                        |                          |
+| 2 | 1-2 features `psi_breach` <= PSI <   | `ALERT_ONLY`           | --                       |
+|   | `psi_severe`, no prediction drift,   |                        |                          |
+|   | first window                         |                        |                          |
+| 3 | Same features breach >=              | `INCREMENTAL_RETRAIN`  | auto -> shadow           |
+|   | `consecutive_windows`                |                        |                          |
+| 4 | Any PSI >= `psi_severe` **or**       | `FULL_RETRAIN`         | auto -> shadow if        |
+|   | prediction drift                     |                        | confidence >=            |
+|   |                                      |                        | auto_proceed_confidence, |
+|   |                                      |                        | else escalate            |
+| 5 | Matured-label AUROC drop >           | `FULL_RETRAIN`         | escalate to human        |
+|   | `matured_auroc_drop`                 |                        |                          |
+| 6 | Retrained < X days ago **or** budget | downgrade `ALERT_ONLY` | escalate                 |
+|   | spent                                |                        |                          |
 
 Every threshold above is read from the `Policy`, never from this file. The only
 thing hard-coded here is the *shape* of the table, which is what "freeze
@@ -20,7 +30,7 @@ policy-v1 at 6 rules" (RISK_ANALYSIS.md §1) means: policy-v2 changes numbers in
 a YAML diff a reviewer reads, not branches in Python.
 
 The table's conditions overlap, so evaluating it needs a precedence; §3.8 does
-not state one, so `policy.precedence` carries it and `configs/policy-v1.yaml`
+not state one, so `policy.precedence` carries it and `configs/policy-v*.yaml`
 explains the reading. The table is also not total -- three or more features
 breaching mildly in their first window match no rule -- so
 `policy.uncovered_breach_action` names what happens there, documented as a

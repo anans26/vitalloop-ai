@@ -46,7 +46,7 @@ class FeatureBreach:
 
 @dataclass(frozen=True)
 class DriftEvidence:
-    """Everything policy-v1 is allowed to look at, for one window."""
+    """Everything the policy is allowed to look at, for one window."""
 
     drift_event_id: str
     scenario: str

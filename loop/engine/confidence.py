@@ -117,9 +117,9 @@ def compute_confidence(evidence: DriftEvidence, policy: Policy) -> ConfidenceBre
 def max_attainable_confidence(policy: Policy, *, labels_matured: bool = False) -> float:
     """The ceiling under a given evidence completeness.
 
-    Useful in tests and in the docs: under policy-v1 with leading indicators
-    only it is 0.875, so `auto_proceed_confidence = 0.75` is reachable but
-    demanding -- which is the intended shape, not an accident.
+    Useful in tests and in the docs: under both shipped policies' weights, with
+    leading indicators only it is 0.875, so `auto_proceed_confidence = 0.75` is
+    reachable but demanding -- which is the intended shape, not an accident.
     """
     weights = policy.weights
     completeness = weights.matured_labels if labels_matured else weights.leading_indicators

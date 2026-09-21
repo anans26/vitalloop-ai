@@ -840,7 +840,7 @@ claim ("every card can be re-derived by hand from the policy table") testable.
 
 | Module | Role |
 |---|---|
-| `configs/policy-v1.yaml` | the policy artifact: every number the engine decides with |
+| `configs/policy-v*.yaml` | the policy artifacts: every number the engine decides with. `policy-v2` is in force; `policy-v1` is retained so its cards stay re-derivable |
 | `loop/engine/policy.py` | loads and validates a policy version |
 | `loop/engine/evidence.py` | the engine's input: one window plus its breach history |
 | `loop/engine/confidence.py` | the deterministic confidence formula (§3.8) |
@@ -870,7 +870,7 @@ python -m loop.engine.evaluate --dry-run
 VITALLOOP_MONITOR_SCENARIO=S1 python -m loop.monitor.worker
 ```
 
-`VITALLOOP_POLICY_VERSION` selects the policy (default `policy-v1`). A policy
+`VITALLOOP_POLICY_VERSION` selects the policy (default `policy-v2`). A policy
 that will not load is fatal at worker startup rather than on the first tick: a
 monitor that silently stopped deciding looks exactly like a monitor that found
 nothing to decide.
@@ -881,7 +881,7 @@ nothing to decide.
 Decision Card records which policy version produced it. Changing a threshold is
 a reviewed pull request — that **is** the governance story."*
 
-So every number lives in `configs/policy-v1.yaml` and nowhere else. There is no
+So every number lives in `configs/policy-v*.yaml` and nowhere else. There is no
 default threshold anywhere in `loop/engine/`: a missing key fails the load
 rather than falling back to something no reviewer approved. `load_policy` also
 refuses a policy the engine could not defend — weights that do not sum to 1.0, a
@@ -899,6 +899,18 @@ transcription, retained unedited because cards were emitted under it.
 **`policy-v2`** is the policy in force: the same six rules with `psi_breach`
 calibrated on the no-drift control, as the roadmap requires (§15.6). Select one
 with `--policy` or `VITALLOOP_POLICY_VERSION`.
+
+**Reading §3.8 against the policy in force.** `project_docs/` is frozen planning
+documentation — the source of truth for *intent*, written before any code existed
+— so §3.8's rule table still prints `PSI ≥ 0.10`, and it is deliberately not
+edited to match the implementation. Exactly one number in it is superseded: the
+engine decides at `psi_breach: 0.20`. Week 7's stated outcome (“the examiner can
+read the policy as a table and re-derive any card by hand”) therefore holds
+against `configs/policy-v*.yaml` — the artifact every card names in its
+`policy_version` field — rather than against §3.8's printed constants. Every
+other value, rule, weight and precedence in §3.8 is reproduced exactly. This is
+the one residual divergence between the planning documents and the running
+system, and it is recorded here rather than resolved by editing either side.
 
 #### The rule table (unchanged across policy versions)
 
