@@ -1,18 +1,23 @@
 """SQLAlchemy models for the audit tables.
 
-Three of the five tables in `project_docs/ARCHITECTURE.md` §4.6 exist here:
+Four of the five tables in `project_docs/ARCHITECTURE.md` §4.6 exist here:
 `predictions` (Week 5, the per-request audit row), `drift_events` (Week 6, one
-monitoring window's measurement) and `decision_cards` (Week 7, what the policy
-made of that measurement). The remaining two (`retrain_runs`, `approvals`)
-belong to Weeks 8-9 and are deliberately absent.
+monitoring window's measurement), `decision_cards` (Week 7, what the policy
+made of that measurement) and `retrain_runs` (Week 8, the challenger that
+decision produced and the gate's verdict on it). The remaining one
+(`approvals`) belongs to Week 9 and is deliberately absent.
 
-`drift_events -> decision_cards` is the first link of the relational lineage
-§4.6 calls "the audit trail": a card names the window that triggered it, so the
-evidence behind any decision is one join away.
+`drift_events -> decision_cards -> retrain_runs` is the relational lineage §4.6
+calls "the audit trail": a card names the window that triggered it and a
+retrain run names the card that authorised it, so the evidence behind any
+challenger is two joins away.
 
-All three tables are **append-only in application code**: nothing in this
+All four tables are **append-only in application code**: nothing in this
 repository issues UPDATE or DELETE against any of them, which is how §4.6's
-immutability claim is kept without database-level machinery.
+immutability claim is kept without database-level machinery. The status
+transitions §3.12 describes are appended as `retrain_runs` rows rather than
+written back onto a card, which is §4.6's own instruction ("status transitions
+append history rows").
 
 What is *not* stored is as deliberate as what is. A prediction's request
 payload is reduced to a SHA-256 hash, so a later investigation can prove which
@@ -223,3 +228,95 @@ class DecisionCard(Base):
 
 Index("ix_decision_cards_scenario_created", DecisionCard.scenario, DecisionCard.created_at)
 Index("ix_decision_cards_action_created", DecisionCard.action, DecisionCard.created_at)
+
+
+class RetrainRun(Base):
+    """One retrain attempt for one Decision Card, and the gate's verdict on it.
+
+    The fourth of the five tables in §4.6. Columns follow that ERD (`run_id`,
+    `card_id`, `mlflow_run`, `data_version`, `gate_result`, `outcome`); the rest
+    are the queryable projection this schema has used since `predictions` --
+    the numbers a dashboard or an examiner would otherwise have to dig out of
+    `gate_result` to answer "which challengers were blocked, on which card, and
+    did anything move".
+
+    `decision_cards -> retrain_runs` closes the second link of the relational
+    lineage §4.6 calls the audit trail: a drift window explains a card, and a
+    card explains the retrain it authorised.
+
+    **The card's status transition lives here, not on the card.** §3.12 says a
+    blocked challenger leaves the card "closed as BLOCKED", while §4.6 requires
+    every table to be append-only in application code -- "no UPDATE on card
+    contents; status transitions append history rows". This row *is* that
+    history row: nothing in this repository updates a `decision_cards` row after
+    it is written, and a card's effective state is read by joining to its
+    retrain runs.
+
+    **Idempotent by construction**, like `decision_cards` before it. `run_id` is
+    derived from the card, the mode and the challenger being judged, and
+    `(card_id, mode, challenger_version)` carries a unique constraint, so
+    re-running the same retrain cannot append a second verdict about the same
+    challenger. A *different* challenger on the same card is a distinct row,
+    which is what the deliberately-bad-challenger demonstration needs.
+
+    Append-only in application code, like the three tables above it. Statistics
+    and metadata only -- `gate_result` holds aggregate metric sets, never rows.
+    """
+
+    __tablename__ = "retrain_runs"
+
+    run_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now(), index=True
+    )
+
+    # The decision that authorised this retrain. §4.6: DECISION_CARDS ||--o{ RETRAIN_RUNS.
+    card_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("decision_cards.card_id"), index=True
+    )
+    # Carried from the card so the common queries need no join.
+    scenario: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    policy_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    action: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+    # "live" trains; "replay" re-registers a pre-trained challenger (§3.11's
+    # demo acceleration). Recorded rather than inferred, because the roadmap
+    # requires replay to be "a first-class, labeled feature" -- a replayed run
+    # must never be mistaken for a run that actually trained.
+    mode: Mapped[str] = mapped_column(String(16), index=True)
+
+    # Lineage onto the model and data planes.
+    mlflow_run: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    data_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    champion_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    challenger_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # The gate's verdict. `outcome` is PASS or BLOCK (§3.12).
+    outcome: Mapped[str] = mapped_column(String(16), index=True)
+    criteria_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    failed_criteria_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Whether the PASS actually moved the `shadow` alias. Separated from
+    # `outcome` because §3.12's "PASS -> shadow" is an effect, and an effect
+    # that did not happen (dry run, registry unavailable) must not read as one
+    # that did.
+    shadow_alias_moved: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Who authorised a retrain the policy escalated. Null on the automated
+    # path, where the card's own AUTO_PROCEED_SHADOW disposition is the
+    # authority (WORKFLOW.md §4: escalated evidence retrains only once an ops
+    # user acts).
+    authorized_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # The whole gate result: criteria, every check, both metric sets.
+    gate_result: Mapped[dict] = mapped_column(JSON_TYPE)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "card_id", "mode", "challenger_version", name="uq_retrain_runs_card_mode_challenger"
+        ),
+    )
+
+
+Index("ix_retrain_runs_outcome_created", RetrainRun.outcome, RetrainRun.created_at)
+Index("ix_retrain_runs_card_created", RetrainRun.card_id, RetrainRun.created_at)

@@ -12,10 +12,10 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, inspect
 
-from db.models import Base, DecisionCard, DriftEvent, Prediction
+from db.models import Base, DecisionCard, DriftEvent, Prediction, RetrainRun
 from db.session import init_db
 
-EXPECTED_TABLES = {"predictions", "drift_events", "decision_cards"}
+EXPECTED_TABLES = {"predictions", "drift_events", "decision_cards", "retrain_runs"}
 
 
 @pytest.fixture
@@ -40,6 +40,7 @@ def test_every_model_is_registered_in_the_shared_metadata():
     assert DriftEvent.__table__.metadata is Base.metadata
     assert Prediction.__table__.metadata is Base.metadata
     assert DecisionCard.__table__.metadata is Base.metadata
+    assert RetrainRun.__table__.metadata is Base.metadata
     assert EXPECTED_TABLES <= set(Base.metadata.tables)
 
 
@@ -75,7 +76,7 @@ def test_init_db_is_safe_to_run_again_on_an_existing_database(fresh_engine):
 
 
 def test_init_db_adds_the_later_tables_to_a_database_that_predates_them(fresh_engine):
-    """The upgrade path for the existing Postgres instance: predictions only, then all three."""
+    """The upgrade path for the existing Postgres instance: predictions only, then all four."""
     Prediction.__table__.create(bind=fresh_engine)
     assert set(inspect(fresh_engine).get_table_names()) == {"predictions"}
 
@@ -141,3 +142,44 @@ def test_init_db_leaves_existing_rows_alone(fresh_engine):
     init_db(fresh_engine)
     with Session(fresh_engine) as session:
         assert session.query(Prediction).count() == 1
+
+
+def test_init_db_adds_retrain_runs_to_a_database_that_predates_week_8(fresh_engine):
+    """A Week 7 database gains `retrain_runs` the next time anything starts."""
+    Prediction.__table__.create(bind=fresh_engine)
+    DriftEvent.__table__.create(bind=fresh_engine)
+    DecisionCard.__table__.create(bind=fresh_engine)
+    assert "retrain_runs" not in inspect(fresh_engine).get_table_names()
+
+    init_db(fresh_engine)
+    assert "retrain_runs" in inspect(fresh_engine).get_table_names()
+
+
+def test_init_db_creates_the_retrain_runs_columns(fresh_engine):
+    init_db(fresh_engine)
+    columns = {c["name"] for c in inspect(fresh_engine).get_columns("retrain_runs")}
+    assert columns == set(RetrainRun.__table__.columns.keys())
+    # The §4.6 ERD's own column list for RETRAIN_RUNS.
+    assert {"run_id", "card_id", "mlflow_run", "data_version", "gate_result", "outcome"} <= columns
+
+
+def test_retrain_runs_are_unique_per_card_mode_and_challenger(fresh_engine):
+    """The Week 8 idempotency guarantee, enforced by the database rather than by code."""
+    init_db(fresh_engine)
+    constraints = inspect(fresh_engine).get_unique_constraints("retrain_runs")
+    by_name = {c["name"]: c["column_names"] for c in constraints}
+    assert by_name["uq_retrain_runs_card_mode_challenger"] == [
+        "card_id",
+        "mode",
+        "challenger_version",
+    ]
+
+
+def test_retrain_runs_reference_the_card_that_authorised_them(fresh_engine):
+    """§4.6: DECISION_CARDS ||--o{ RETRAIN_RUNS."""
+    init_db(fresh_engine)
+    keys = inspect(fresh_engine).get_foreign_keys("retrain_runs")
+    assert any(
+        key["referred_table"] == "decision_cards" and key["constrained_columns"] == ["card_id"]
+        for key in keys
+    )

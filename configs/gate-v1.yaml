@@ -1,0 +1,77 @@
+# gate-v1 -- the validation gate's criteria, as a versioned artifact.
+#
+# WHY THIS FILE EXISTS
+#
+# ARCHITECTURE.md §10 places "gate criteria" in `configs/` and describes
+# `loop/gate/` as "validation gate (pure function) + criteria config". The same
+# reasoning that put the policy table in `configs/policy-v*.yaml` applies here:
+# a number the system *decides* with belongs in a reviewable diff, not in an
+# `if`-statement. Changing a promotion threshold is a governed act.
+#
+# WHERE THE NUMBERS COME FROM
+#
+# The five criteria are ARCHITECTURE.md §3.12 and PROJECT_DESIGN.md §4.5,
+# transcribed without alteration:
+#
+#   AUROC                    challenger >= champion - 0.005
+#   Recall @ top decile      challenger >= champion
+#   Brier score              challenger <= champion + 0.005
+#   Calibration (ECE)        <= 0.05 absolute
+#   Subgroup non-regression  no age/gender/race AUROC drop > 0.01
+#
+# THE RELATIONSHIP TO A DECISION CARD
+#
+# These same five numbers are already pinned onto every Decision Card as
+# `acceptance_criteria`, because RESEARCH_NOVELTY.md C1 requires "the
+# acceptance criteria the challenger must meet **before** training starts" to
+# be part of the card. That pinning is the authority for a card-driven run: a
+# challenger is judged by the bar that was set when the decision was taken, not
+# by whatever `configs/` says afterwards.
+#
+# This file is therefore the *default* criteria artifact -- what the CI "gate
+# check" stage and any card-less comparison use -- and the card's copy wins
+# whenever a card is driving. `test_criteria.py` asserts that the two agree
+# field for field with §4.5, so the pair cannot silently diverge.
+
+version: gate-v1
+
+description: >-
+  ARCHITECTURE.md §3.12 / PROJECT_DESIGN.md §4.5 promotion criteria, verbatim.
+  Identical to the `acceptance_criteria` block every policy pins onto a card.
+
+# ---------------------------------------------------------------------------
+# The five blocking criteria (§3.12 / §4.5)
+# ---------------------------------------------------------------------------
+criteria:
+  # challenger >= champion - 0.005
+  auroc_non_inferiority_margin: 0.005
+  # challenger >= champion * 1.0, i.e. no loss of top-decile recall at all
+  recall_top_decile_min_ratio: 1.0
+  # challenger <= champion + 0.005
+  max_brier_increase: 0.005
+  # an absolute ceiling, not a comparison: a miscalibrated challenger is
+  # refused even if the champion is worse (RISK_ANALYSIS.md §2 makes ECE a
+  # *gate criterion*, not a report metric)
+  max_ece: 0.05
+  # fairness is a blocking property, not a dashboard (contribution C4)
+  max_subgroup_auroc_drop: 0.01
+
+# ---------------------------------------------------------------------------
+# What the criteria are evaluated on
+# ---------------------------------------------------------------------------
+# §3.12: "Compares challenger vs champion on (a) a frozen holdout and (b) the
+# most recent labeled window". RISK_ANALYSIS.md §2 gives the reason -- gating
+# repeatedly against one frozen set eventually overfits to it -- so both sets
+# are required and a criterion must hold on *both*. A failure on either blocks.
+evaluation:
+  sets:
+    - frozen_holdout
+    - recent_labeled_window
+  require_all_sets: true
+  # §3.12's "(age, gender, race)", which is also ml/config.py SUBGROUP_COLUMNS.
+  subgroup_columns:
+    - age
+    - gender
+    - race
+  # "Recall @ top decile" -- the same operating point Week 3 reports.
+  top_decile_fraction: 0.10

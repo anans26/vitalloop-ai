@@ -345,13 +345,16 @@ def log_run(
     return summary
 
 
-def _make_console_encoding_safe() -> None:
+def make_console_encoding_safe() -> None:
     """Stops a Windows console from killing a run that already succeeded.
 
     MLflow prints a run URL containing an emoji. On a cp1252 console that raises
     UnicodeEncodeError from inside `end_run`, which leaves the run stuck in
     RUNNING and skips registration -- a logging detail breaking the actual work.
     Replacing unencodable characters keeps the console readable and harmless.
+
+    Public because every entry point that starts an MLflow run needs it, not
+    only this one: Week 8's retrain and gate CLIs hit the identical failure.
     """
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -364,7 +367,7 @@ def main() -> None:
     """The one documented Week 4 command: train, evaluate, explain, then track."""
     from ml import evaluate, explain, train
 
-    _make_console_encoding_safe()
+    make_console_encoding_safe()
 
     train.main()
     evaluate.main()

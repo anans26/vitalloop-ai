@@ -82,7 +82,13 @@ MLOPS PROJECT/
 ├── models/                          # Fitted model bundle + run metadata (DVC outputs, gitignored)
 ├── api/                             # Week 5 FastAPI serving layer (auth, schemas, routers)
 ├── db/                              # SQLAlchemy models + session handling for the audit trail
-├── scripts/                         # Operational helpers (dev JWT issuer)
+├── loop/                            # The self-healing loop
+│   ├── monitor/                     #   Week 6: Evidently drift runs, drift_events persistence
+│   ├── engine/                      #   Week 7: policy table, confidence, Decision Card emission
+│   └── gate/                        #   Week 8: validation gate (pure function) + criteria loading
+├── scenarios/                       # Seeded drift-injection scripts S1-S5 (the Week 6 benchmark)
+├── configs/                         # Versioned decision policies + gate criteria (policy-v*, gate-v*)
+├── scripts/                         # Operational helpers (dev JWT issuer, replay_retrain)
 ├── mlflow/                          # Local MLflow store + alias audit log (gitignored)
 ├── reports/                         # Metrics, calibration table, SHAP tables, figures (DVC outputs;
 │                                   #   reports/metrics.json is a git-tracked DVC metric)
@@ -94,7 +100,7 @@ MLOPS PROJECT/
 └── .gitignore
 ```
 
-**Folders that do not exist yet** (and why that's correct at Week 2, per `project_docs/ARCHITECTURE.md` §10's target structure): `api/`, `loop/`, `dashboard/`, `db/`, `scenarios/`, `configs/`, `scripts/`, `reports/`. Each belongs to a specific future week (see §6/§11) and has not been created — creating empty stub folders for unimplemented modules was deliberately avoided.
+**Folders that do not exist yet** (per `project_docs/ARCHITECTURE.md` §10's target structure): `dashboard/` (Week 10) and `loop/narrate/` (Week 9). Each belongs to a specific future week (see §6/§11) and has not been created — creating empty stub folders for unimplemented modules is deliberately avoided. (This sentence listed `api/`, `loop/`, `db/`, `scenarios/`, `configs/`, `scripts/` and `reports/` as missing until Week 8; they were built in Weeks 5–8 and the list had gone stale.)
 
 ---
 
@@ -176,7 +182,7 @@ MLOPS PROJECT/
 ### `ml/evaluate.py`
 - **Purpose:** the metric suite on the frozen evaluation slice.
 - **Contains:** `expected_calibration_error`, `recall_at_top_fraction`, `threshold_counts`, `top_decile_threshold`, `score_predictions`, `reliability_table`, `subgroup_metrics`, and a `main()` that writes the report artifacts.
-- **Design note:** every function is a pure function over `(y_true, y_prob)`, which is what makes the metrics unit-testable against hand-computed cases — the same property Week 8's validation gate will need.
+- **Design note:** every function is a pure function over `(y_true, y_prob)`, which is what makes the metrics unit-testable against hand-computed cases — the same property Week 8's validation gate needed, and `loop/gate/metrics.py` reuses these functions rather than defining a second set.
 - **Status:** implemented.
 
 ### `ml/explain.py`
@@ -195,7 +201,7 @@ MLOPS PROJECT/
 ### `ml/registry.py`
 - **Purpose:** the only sanctioned way to register a model version or move an alias, per `project_docs/ARCHITECTURE.md` §3.5.
 - **Contains:** `register_model`, `current_alias_version`, `set_alias`, `ensure_initial_champion`, `write_audit_row`, `read_audit_rows`.
-- **Design note:** `ensure_initial_champion` sets `champion` only when nothing holds it. Week 4 registers; it does not promote — replacing a champion is what the Week 8 gate and Week 9 approval flow exist to authorise.
+- **Design note:** `ensure_initial_champion` sets `champion` only when nothing holds it. Week 4 registers; it does not promote. Week 8's gate moves `challenger` and, on a PASS, `shadow` — it still does not touch `champion`, which only the Week 9 approval flow may move.
 - **Audit trail:** every alias move appends a row (alias, from/to version, run id, git commit, actor, reason, timestamp) to `mlflow/registry_audit.jsonl`. JSONL because the Postgres table that will hold these rows is Week 5; the record shape is chosen to migrate into one.
 - **Status:** implemented; `vitalloop-readmission` v1 registered with `champion`.
 
@@ -383,13 +389,13 @@ The five-plane target (data → model → serving → self-healing loop → obse
 | API serving (FastAPI, JWT, audit rows) | ⬜ Not started | 0% — Week 5 |
 | Drift monitoring (Evidently) | ✅ Completed | `loop/monitor/` + `scenarios/` — per-window PSI/KS/prediction drift, `drift_events` rows, Evidently HTML reports, seeded scenarios S1–S5 |
 | Decision Engine + Decision Card | ✅ Completed | `configs/policy-v*.yaml` + `loop/engine/` — the versioned six-rule policy table, the decomposed confidence formula, the frozen Pydantic Decision Card, and `decision_cards` persistence with idempotent re-evaluation. `policy-v2` carries the control calibration the roadmap assigns; `policy-v1` is retained unedited because cards reference it |
-| Retrain pipeline + validation gate | ⬜ Not started | 0% — Week 8 |
+| Retrain pipeline + validation gate | ✅ Completed | `ml/retrain.py` + `configs/gate-v1.yaml` + `loop/gate/` — the DVC-pinned challenger run (live or `replay`), the versioned promotion criteria, the gate as a pure function over two metric sets, `retrain_runs` persistence with idempotent re-gating, and `shadow` on PASS. `champion` is never moved here |
 | Shadow deployment, approval, LLM narration | ⬜ Not started | 0% — Week 9 |
 | Dashboard (Streamlit) + audit PDF | ⬜ Not started | 0% — Week 10 |
 | CI/CD hardening | 🟡 Partially completed | Basic lint+test CI exists; training smoke test, gate check, and image build stages are Week 11 |
 | Report / viva prep | ⬜ Not started | 0% — Week 12 |
 
-**Overall project completion: 7 of 12 weeks (~58%) by roadmap time — the data plane, the model plane, the serving plane, and the sensing-and-deciding half of the loop. The engine records retrain *recommendations*; the pipeline that would act on one is Week 8 and does not exist.**
+**Overall project completion: 8 of 12 weeks (~67%) by roadmap time — the data plane, the model plane, the serving plane, and the loop as far as shadow. A card's retrain recommendation now produces a challenger and a gate verdict; what is still missing is everything that would put that challenger in front of anyone — shadow scoring, approval and promotion are Week 9.**
 
 ---
 
@@ -426,7 +432,7 @@ sequenceDiagram
 
 There is currently no request flow, no frontend-backend communication, and no AI integration to diagram — those all require components that don't exist yet (§11).
 
-**Configuration flow today:** `pyproject.toml` configures ruff/pytest → read automatically by those tools. `dvc.yaml` configures the pipeline → read by `dvc repro`/`dvc push`/`dvc pull`. `docker-compose.yml` configures the services → read by `docker compose`, with secrets from a gitignored `docker/.env` (template: `docker/.env.example`). `configs/policy-v*.yaml` configures the Decision Engine → read by `loop.engine.policy.load_policy` (default `policy-v2`), and named on every card it produces.
+**Configuration flow today:** `pyproject.toml` configures ruff/pytest → read automatically by those tools. `dvc.yaml` configures the pipeline → read by `dvc repro`/`dvc push`/`dvc pull`. `docker-compose.yml` configures the services → read by `docker compose`, with secrets from a gitignored `docker/.env` (template: `docker/.env.example`). `configs/policy-v*.yaml` configures the Decision Engine → read by `loop.engine.policy.load_policy` (default `policy-v2`), and named on every card it produces. `configs/gate-v*.yaml` configures the validation gate → read by `loop.gate.criteria.load_criteria`, though a card-driven run is judged by the `acceptance_criteria` the card pinned at decision time.
 
 ---
 
@@ -475,9 +481,8 @@ There is currently no request flow, no frontend-backend communication, and no AI
 
 ## 11. Pending Features — NOT IMPLEMENTED
 
-Everything below is described only because it is planned in `project_docs/IMPLEMENTATION_ROADMAP.md`. **None of it exists in the repository today.** (Weeks 3–7 — the model, calibration, SHAP, MLflow tracking and registry, the authenticated serving API with its Postgres audit trail, the Evidently drift monitor with the S1–S5 benchmark, and the deterministic Decision Engine with its versioned policy and Decision Cards — have since been implemented and are no longer listed.) It is listed here purely so a new developer knows what is coming and doesn't go looking for it.
+Everything below is described only because it is planned in `project_docs/IMPLEMENTATION_ROADMAP.md`. **None of it exists in the repository today.** (Weeks 3–8 — the model, calibration, SHAP, MLflow tracking and registry, the authenticated serving API with its Postgres audit trail, the Evidently drift monitor with the S1–S5 benchmark, the deterministic Decision Engine with its versioned policy and Decision Cards, and the retrain pipeline with its validation gate — have since been implemented and are no longer listed.) It is listed here purely so a new developer knows what is coming and doesn't go looking for it.
 
-- **Week 8 — NOT IMPLEMENTED:** the retrain pipeline, the validation gate.
 - **Week 9 — NOT IMPLEMENTED:** shadow deployment, human approval flow, **any LLM/Gemini narration integration whatsoever**.
 - **Week 10 — NOT IMPLEMENTED:** the Streamlit dashboard, audit PDF export (fpdf2).
 - **Week 11 — NOT IMPLEMENTED:** CI training smoke run, gate check stage, Docker image build stage, coverage gates beyond what exists today.
@@ -494,9 +499,9 @@ If any other document (including AI-generated summaries) describes any of the ab
 - **Where model code lives:** `ml/train.py`, `ml/evaluate.py`, `ml/explain.py`, configured by `ml/config.py` (Week 3; implemented). Changing any of these re-runs the DVC model stages — commit the regenerated `dvc.lock` alongside the change.
 - **Where tracking and registry code lives:** `ml/tracking.py` and `ml/registry.py` (Week 4; implemented). An alias must only ever move through `ml.registry.set_alias`, so the audit row cannot be skipped.
 - **Where new AI models/LLM clients will live:** `loop/narrate/` (Week 9; not yet created) — and must use `gemini-2.5-flash` per the project's mandatory constraint, with the offline-vs-cloud conflict (§9) resolved before writing that code.
-- **Where configuration lives:** `configs/` holds the versioned decision policies (`policy-v1.yaml` and `policy-v2.yaml`, the latter in force; gate criteria follow in Week 8). A number the system *decides* with belongs there, so a change to it is a reviewable diff; a number the system only *measures* with stays as a module constant beside its code (`ml/config.py`, `loop/monitor/config.py`). Environment variables go in a gitignored `.env` with a committed `.env.example`.
+- **Where configuration lives:** `configs/` holds the versioned decision policies (`policy-v1.yaml` and `policy-v2.yaml`, the latter in force) and the versioned promotion criteria (`gate-v1.yaml`). A number the system *decides* with belongs there, so a change to it is a reviewable diff; a number the system only *measures* with stays as a module constant beside its code (`ml/config.py`, `loop/monitor/config.py`). Environment variables go in a gitignored `.env` with a committed `.env.example`.
 - **Where monitoring code lives:** `loop/monitor/` (Week 6; implemented) and `scenarios/` for the S1–S5 benchmark.
-- **Where the decision logic lives:** `loop/engine/` (Week 7; implemented). A threshold must never be added to a module there — it goes in `configs/policy-v*.yaml`, and a *new* policy is a new file, because emitted cards name the version that judged them. `policy-v1` is §3.8's literal transcription; `policy-v2` is the same six rules with `psi_breach` calibrated on the no-drift control and is the version in force. `loop/gate/` and `loop/narrate/` are Weeks 8–9 and do not exist yet.
+- **Where the decision logic lives:** `loop/engine/` (Week 7; implemented). A threshold must never be added to a module there — it goes in `configs/policy-v*.yaml`, and a *new* policy is a new file, because emitted cards name the version that judged them. `policy-v1` is §3.8's literal transcription; `policy-v2` is the same six rules with `psi_breach` calibrated on the no-drift control and is the version in force. **`loop/gate/` (Week 8; implemented)** follows the same rule with `configs/gate-v*.yaml`: no promotion threshold lives in a module, and `loop/gate/gate.py` is a pure function with no database, model, clock or network. `loop/narrate/` is Week 9 and does not exist yet.
 - **Branch conventions:** `main` is the only long-lived branch and must always be demoable — the roadmap's "Friday demo rule" (`project_docs/IMPLEMENTATION_ROADMAP.md`, Standing Rules). Work happens on short-lived branches named `week<N>/<topic>` (e.g. `week3/lightgbm-training`), or `fix/<topic>` for corrections outside the weekly cadence. Branches merge into `main` only with `ruff check .`, `ruff format --check .`, and `pytest -q` green; CI enforces the same three on every push and pull request. Delete the branch after merge.
 - **Commit conventions:** Conventional-Commits style subject lines (`feat:`, `fix:`, `docs:`, `chore:`, `test:`), imperative mood, under ~72 characters, with a body explaining *why* rather than restating the diff. Commits that change `ml/data/schema.py`, `clean.py`, `split.py`, or `build_dataset.py` must include the regenerated `dvc.lock` in the **same** commit — those four files are DVC stage dependencies, so splitting them across commits leaves `main` in a state where `dvc status` is dirty on a fresh clone.
 - **Naming conventions observed so far:** `snake_case` for modules and functions, one module per single responsibility, test files mirror source files 1:1 (`ml/data/clean.py` ↔ `tests/data/test_clean.py`).

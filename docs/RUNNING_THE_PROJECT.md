@@ -1,7 +1,7 @@
 # Running the Project — VitalLoop 2.0
 
-> **Milestone covered by this document: Week 7 of the 12-week roadmap.**
-> This document describes only what exists and runs in the repository today. Features planned for Week 8 onward (the retrain pipeline and validation gate, shadow deployment, the dashboard, LLM narration) are **not implemented** and are not covered here — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full pending list.
+> **Milestone covered by this document: Week 8 of the 12-week roadmap.**
+> This document describes only what exists and runs in the repository today. Features planned for Week 9 onward (shadow scoring, human approval and promotion, the dashboard, LLM narration) are **not implemented** and are not covered here — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full pending list.
 
 ---
 
@@ -9,11 +9,13 @@
 
 **VitalLoop 2.0** is a self-healing MLOps system for predicting 30-day hospital readmission risk, designed around one principle: *deterministic code decides, an LLM only narrates, a human approves anything clinician-facing*. Full design intent lives in `project_docs/` (`PROJECT_DESIGN.md`, `ARCHITECTURE.md`, etc.) — those are planning documents, not a description of current code.
 
-**Current implementation stage:** end of Week 7 of a 12-week roadmap (`project_docs/IMPLEMENTATION_ROADMAP.md`). The repository contains the data plane (ingestion, validation, cleaning, features, DVC versioning), the model plane (LightGBM + isotonic calibration + SHAP, tracked and registered in MLflow), the serving plane (authenticated FastAPI `/predict` with fail-closed Postgres audit rows), and the first half of the loop — Evidently drift detection with the seeded S1–S5 benchmark, and the deterministic Decision Engine that turns each measured window into an auditable Decision Card. There is no retrain pipeline, no validation gate, no shadow deployment, no dashboard, and no LLM integration of any kind yet.
+**Current implementation stage:** end of Week 8 of a 12-week roadmap (`project_docs/IMPLEMENTATION_ROADMAP.md`). The repository contains the data plane (ingestion, validation, cleaning, features, DVC versioning), the model plane (LightGBM + isotonic calibration + SHAP, tracked and registered in MLflow), the serving plane (authenticated FastAPI `/predict` with fail-closed Postgres audit rows), and the loop as far as shadow — Evidently drift detection with the seeded S1–S5 benchmark, the deterministic Decision Engine that turns each measured window into an auditable Decision Card, and the retrain-and-gate step that turns a card into a challenger and refuses to promote a regression. There is no shadow scoring, no human approval, no dashboard, and no LLM integration of any kind yet.
 
-**Current milestone (Week 7) exit criteria, both met:**
-- All five drift scenarios produce the card the policy table predicts, including `NO_OP` on **every** control window (§15.5), after applying the threshold calibration the roadmap assigns to the control (§15.6).
-- Branch coverage on the Decision Engine is 99%, against the roadmap's ≥ 95% target (§10).
+**Current milestone (Week 8) exit criteria, both met:**
+- The card → retrain → gate path runs end to end and is verified on the live stack: a real Decision Card produced a registered challenger, the gate returned `PASS`, and the `shadow` alias moved while `champion` did not (§16.9).
+- A deliberately bad challenger is `BLOCK`ed with one named reason per failed criterion (§16.4), proven by fixture rather than by anecdote.
+
+**Week 7 exit criteria (still met):** all five drift scenarios produce the card the policy table predicts, including `NO_OP` on **every** control window (§15.5); branch coverage on the Decision Engine is 99% against the roadmap's ≥ 95% target (§10).
 
 ---
 
@@ -31,7 +33,7 @@ Only technologies **actually present in the repository today** are listed. Every
 | **DVC** | 3.67.1 | Hash-pinned data versioning without cloud credentials | Versions the raw and processed datasets via a **local** remote |
 | **ucimlrepo** | 0.0.7 | Official UCI ML Repository fetch helper | Downloads the primary dataset programmatically (`ml/data/ingest.py`) |
 | **Jupyter / ipykernel** | 1.0+ / 6.29+ | Interactive EDA | Runs `notebooks/01_eda.ipynb` |
-| **pytest** | 9.1.1 | Standard Python test runner | 654 tests: Week 2 data contract, Week 3 model/calibration/SHAP, Week 4 tracking/registry, Week 5 API/auth/audit contracts, Week 6 drift/PSI/scenario/persistence contracts, and Week 7 policy/confidence/card/decision contracts (the rule table is re-verified against every shipped policy version) |
+| **pytest** | 9.1.1 | Standard Python test runner | 867 tests: Week 2 data contract, Week 3 model/calibration/SHAP, Week 4 tracking/registry, Week 5 API/auth/audit contracts, Week 6 drift/PSI/scenario/persistence contracts, Week 7 policy/confidence/card/decision contracts (the rule table is re-verified against every shipped policy version), and Week 8 retrain/criteria/gate/persistence contracts |
 | **ruff** | 0.16.8 | Fast combined linter/formatter | Enforced via `pyproject.toml`, the pre-commit hook, and CI (`check` + `format --check`) |
 | **pre-commit** | 4.6.2 | Runs ruff automatically on commit | Installed (`.git/hooks/pre-commit`); hook pinned to ruff v0.16.8 to match the pinned CLI |
 | **LightGBM** | 4.7.0 | Gradient boosting is the right tool for mid-size tabular clinical data (`project_docs/TECH_STACK.md`) | The Week 3 readmission classifier |
@@ -557,7 +559,7 @@ pytest -q tests/test_api_auth.py tests/test_api_predict.py          tests/test_a
 **How to verify the installation:**
 ```bash
 pytest -q
-# Expected: 654 passed
+# Expected: 867 passed
 ruff check .
 # Expected: All checks passed!
 ruff format --check .
@@ -608,13 +610,14 @@ print('No patient leakage across splits: OK')
 
 ## 12. Current Limitations
 
-(Scoped strictly to Week 7 — this is not a roadmap of what's missing overall, just what a developer running the project today should know.)
+(Scoped strictly to Week 8 — this is not a roadmap of what's missing overall, just what a developer running the project today should know.)
 
 - **No frontend.** The Streamlit dashboard is Week 10; the API's OpenAPI page at `/docs` is the only interactive surface.
-- **No governed promotion, and no shadow scoring.** The API serves the `champion` alias, but `challenger` and `shadow` remain unused: shadow dual-scoring is Week 9 middleware, and the validation gate and human approval arrive in Weeks 8–9. `champion` still means "the first registered version", not "a model that passed a gate".
+- **No governed promotion, and no shadow scoring.** The gate moves the `shadow` alias on a PASS, but nothing *scores* with it: shadow dual-scoring is Week 9 middleware, and human approval — the only thing that may move `champion` — is Week 9 too. `champion` still means "the first registered version", not "a model that passed a gate".
 - **Serving latency is above target.** A warm `/predict` takes roughly 350 ms against the roadmap's < 200 ms goal; per-request SHAP dominates. The roadmap's own mitigations (batching, a cached explainer path) are not implemented.
-- **No retrain pipeline, no validation gate, no shadow deployment, no dashboard.** All Week 8+. The engine records `FULL_RETRAIN` and `INCREMENTAL_RETRAIN` as *recommendations on a card*; nothing acts on them, and no model is retrained or promoted.
-- **Policy rules 5 and 6 never fire on real data.** Rule 5 needs matured-label evidence that nothing produces yet; rule 6 needs the `retrain_runs` table, which is Week 8. Both branches exist and are unit-tested against both shipped policies (§15.3).
+- **No shadow deployment, no approval flow, no dashboard.** All Week 9+. A challenger that passes the gate reaches the `shadow` alias and stops there; nothing dual-scores with it and nothing promotes it.
+- **No benchmark card retrains unattended.** Every S1–S3 card escalates (confidence 0.39–0.67 against the 0.75 auto-proceed line), so the automated path is implemented and tested but is never the path the seeded benchmark takes; a retrain on this data needs `--authorized-by` (§16.3).
+- **Policy rules 5 and 6 never fire on real data.** Rule 5 needs matured-label evidence that nothing produces yet. Rule 6 needs a retrain history the Decision Engine can read: `retrain_runs` now exists (Week 8), but wiring its rows back into `DriftEvidence` as a cooldown/budget input is not Week 8's deliverable and was not done. Both branches exist and are unit-tested against both shipped policies (§15.3).
 - **The S1–S5 benchmark exercises rules 1 and 4 only.** After the control calibration, no benchmark scenario lands in the mild band that rules 2 and 3 read (§15.6). Those rules, and 5 and 6, are covered by unit tests rather than by the five scenarios.
 - **No delayed-label performance monitoring.** ARCHITECTURE.md §3.7 lists AUROC/recall on a matured-label window alongside input and prediction drift. Week 6 implements the two leading indicators only; the matured-label arm (and scenario S4's detection, as opposed to its injection) needs the label-latency handling that Weeks 7–8 introduce.
 - **The S5 control is not perfectly silent at the measurement layer** — see §14.4. Two administrative features drift genuinely across the serving stream, which is a finding about the UCI extract, not a bug in the monitor. The monitor still records that drift at its own 0.10 threshold; `policy-v2` calibrates the *decision* threshold on the control, as the roadmap requires, so the control produces `NO_OP` on every window without any evidence being altered (§15.6).
@@ -627,9 +630,9 @@ print('No patient leakage across splits: OK')
 
 ## 13. Current Project Status
 
-**Completed (Week 1 + Week 2 + Week 3 + Week 4 + Week 5 + Week 6 + Week 7 exit criteria):**
+**Completed (Week 1 + Week 2 + Week 3 + Week 4 + Week 5 + Week 6 + Week 7 + Week 8 exit criteria):**
 - Repo scaffold, ruff + pre-commit + basic CI (lint + test) configuration
-- Docker Compose running PostgreSQL 16 (holding `predictions`, `drift_events` and `decision_cards`)
+- Docker Compose running PostgreSQL 16 (holding `predictions`, `drift_events`, `decision_cards` and `retrain_runs`)
 - UCI Diabetes 130-US dataset downloaded and verified (101,766 × 50 columns)
 - `notebooks/01_eda.ipynb` — executed, documents missingness/imbalance/leakage findings with real output
 - Week 1 baseline logistic regression: AUROC 0.6191
@@ -649,9 +652,10 @@ print('No patient leakage across splits: OK')
 - `loop/monitor/` + `scenarios/` — Evidently drift monitoring per window (PSI/KS/prediction drift) against the frozen-evaluation launch reference, `drift_events` persistence, Evidently HTML report artifacts, an APScheduler worker, and the seeded S1–S5 benchmark
 - `configs/policy-v1.yaml`, `configs/policy-v2.yaml` + `loop/engine/` — the deterministic Decision Engine: the versioned six-rule policy table, the decomposed confidence formula, the frozen Pydantic Decision Card, `decision_cards` persistence with idempotent re-evaluation, and the evaluator CLI
 - The control calibration the roadmap assigns to Week 6, applied as `policy-v2`: the S1–S5 benchmark now yields `FULL_RETRAIN` on S1–S3 in their first window and `NO_OP` on every control window (§15.6)
-- 654/654 pytest tests passing (99% branch coverage on the engine); `ruff check .` and `ruff format --check .` clean
+- `configs/gate-v1.yaml` + `loop/gate/` + `ml/retrain.py` + `scripts/replay_retrain.py` — the Week 8 retrain-and-gate step: the DVC-pinned challenger run (live or replay), the versioned promotion criteria, the pure validation gate, `retrain_runs` persistence with idempotent re-gating, and the runner CLI
+- 867/867 pytest tests passing (99% branch coverage on the Decision Engine, 99% on `loop/gate/` and 100% on `ml/retrain.py`); `ruff check .` and `ruff format --check .` clean
 
-**In Progress:** nothing — Week 7 is a clean stopping point with no partially-built component.
+**In Progress:** nothing — Week 8 is a clean stopping point with no partially-built component.
 
 **Open question carried into Week 4:** the Week 3 model scores ~0.60 ROC-AUC,
 below the ~0.64–0.69 range `project_docs/DATASET_ANALYSIS.md` cites for this
@@ -665,7 +669,7 @@ identical conditions. Whether to restate the roadmap's "at or above published
 benchmarks" outcome in light of the stricter protocol is a decision for review,
 not something Week 3 resolved by tuning.
 
-**Remaining (Week 8 onward — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full list):** the retrain pipeline + validation gate, shadow deployment + human approval + LLM narration, the Streamlit dashboard + audit PDF export, CI/CD hardening, and final reporting/viva prep.
+**Remaining (Week 9 onward — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full list):** shadow dual-scoring + human approval + LLM narration, the Streamlit dashboard + audit PDF export, CI/CD hardening, and final reporting/viva prep.
 
 ---
 
@@ -1140,3 +1144,214 @@ rows.
   will read these rows is Week 10.
 - **It does not change Week 6.** No threshold, statistic, scenario or monitored
   feature was altered. The engine reads what the monitor wrote.
+
+---
+
+## 16. Week 8 — Retraining and the Validation Gate
+
+### 16.1 What it does
+
+Week 8 closes the loop. A Decision Card that called for a retrain becomes a
+*challenger*, and the challenger is compared against the champion by a pure
+function that refuses to promote a regression.
+
+`IMPLEMENTATION_ROADMAP.md`, Week 8: *"drift → card → retrain → gate PASS path
+fully automated; bad challenger BLOCKED with reasons."*
+
+| Module | Role |
+|---|---|
+| `ml/retrain.py` | §3.11's retraining pipeline: card → DVC-pinned `challenger` run, live or replay |
+| `configs/gate-v*.yaml` | the gate criteria artifact: every number a promotion is judged by |
+| `loop/gate/criteria.py` | loads and validates a criteria version |
+| `loop/gate/datasets.py` | the two evaluation sets §3.12 gates on |
+| `loop/gate/metrics.py` | builds a `MetricSet` from labeled data, using Week 3's metric suite |
+| `loop/gate/gate.py` | `evaluate_gate(champion, challenger, criteria) -> GateResult` — the pure function |
+| `loop/gate/persistence.py` | a verdict → a `retrain_runs` row, idempotently |
+| `loop/gate/runner.py` | one card end to end, and the CLI |
+| `scripts/replay_retrain.py` | §10's named demo entry point for replay mode |
+
+### 16.2 Running it
+
+```bash
+# every card awaiting a retrain, trained live
+python -m loop.gate.runner
+
+# one card; a card the policy escalated needs a name to record
+python -m loop.gate.runner --card dc-2026-01-01-894fe793 --authorized-by ops-alice
+
+# §3.11's cached-run replay: re-register a pre-trained challenger
+python -m scripts.replay_retrain --card dc-2026-01-02-f0018348
+
+# gate and print, writing nothing and moving no alias
+python -m loop.gate.runner --dry-run
+```
+
+On this machine a live retrain takes about **100 seconds** end to end and a
+replay about **28 seconds** — which is the entire reason replay exists.
+
+### 16.3 What authorises a retrain
+
+The runner never overrides the engine. A card is acted on only if:
+
+- its **action** is `FULL_RETRAIN` or `INCREMENTAL_RETRAIN`; and
+- its **disposition** is `AUTO_PROCEED_SHADOW` — the automated path, which is
+  what §3.8 rule 4 means by "auto → shadow"; or
+- its disposition is `ESCALATE_HUMAN` **and** the caller supplies
+  `--authorized-by`, which is recorded on the run.
+
+`WORKFLOW.md` §4 is explicit about the second case: *"Ambiguous evidence
+(confidence < 0.75) | Disposition = `ESCALATE_HUMAN`; nothing retrains until an
+ops user acts."* A backlog sweep therefore picks up automated cards only; an
+escalated card must be named.
+
+> **On this dataset every benchmark card escalates.** Leading-indicator
+> confidence tops out at 0.875 and the S1–S3 cards reach 0.39–0.67 (§15.5), so
+> none of them clears the 0.75 auto-proceed line. The automated path is
+> implemented and tested; on the seeded benchmark it is simply never the path
+> taken, which is the governed-autonomy design working rather than a gap.
+> Week 9's approval screen is what will produce the `authorized_by` name in the
+> demo.
+
+### 16.4 The gate
+
+`ARCHITECTURE.md` §3.12: *"The gate is a pure function of two metric sets —
+trivially unit-testable, which is exactly what a promotion safety mechanism
+must be."* `loop/gate/gate.py` has no database handle, no model, no filesystem
+access, no clock and no network.
+
+| Criterion | Rule (§3.12 / §4.5) |
+|---|---|
+| AUROC | challenger ≥ champion − `auroc_non_inferiority_margin` (0.005) |
+| Recall @ top decile | challenger ≥ champion × `recall_top_decile_min_ratio` (1.0) |
+| Brier score | challenger ≤ champion + `max_brier_increase` (0.005) |
+| Calibration (ECE) | challenger ≤ `max_ece` (0.05) — an **absolute** ceiling, not a comparison |
+| Subgroup non-regression | no age/gender/race AUROC drop > `max_subgroup_auroc_drop` (0.01) |
+
+Three properties are worth stating explicitly:
+
+- **Both evaluation sets must hold.** §3.12 gates on *"(a) a frozen holdout and
+  (b) the most recent labeled window"*, and `RISK_ANALYSIS.md` §2 gives the
+  reason — gating repeatedly against one frozen set eventually overfits to it.
+  A failure on either blocks.
+- **A missing metric set blocks.** "No evidence" is not "no regression".
+- **An incomparable subgroup is recorded, not skipped.** Where either model has
+  no defined AUROC for a subgroup (a single outcome class), the check is
+  recorded as non-comparable rather than silently passing, so a subgroup that
+  stops being measurable stays visible.
+
+**Which numbers apply.** `configs/gate-v1.yaml` is the default criteria
+artifact, but a card-driven run is judged by the `acceptance_criteria` the
+*card* pinned — `RESEARCH_NOVELTY.md` C1 requires the card to record "the
+acceptance criteria the challenger must meet **before** training starts". The
+verdict records which it used: `gate-v1`, or `card:<card_id>`. A test asserts
+that the file and every policy's pinned block hold the same five numbers, so
+the two artifacts cannot drift apart.
+
+### 16.5 What a PASS and a BLOCK actually do
+
+- **PASS** → the `shadow` alias moves to the challenger, through
+  `ml.registry.set_alias`, which writes an audit row. Nothing else moves.
+- **BLOCK** → nothing moves. §3.12's *"nothing changes in serving"* is enforced
+  by there being no code path that could.
+
+**`champion` is never touched by Week 8.** §3.13 reserves it for a logged human
+approval, which is Week 9. Autonomy stops at shadow.
+
+### 16.6 Where a card's status transition lives
+
+§3.12 says a blocked challenger leaves the card *"closed as `BLOCKED`"*, while
+§4.6 requires every table to be append-only in application code — *"no UPDATE
+on card contents; status transitions append history rows"*. These read as a
+conflict; they are not. **The `retrain_runs` row is the history row.** Nothing
+in this repository updates a `decision_cards` row after it is written, and a
+card's effective state is read by joining to its retrain runs:
+
+```sql
+SELECT c.card_id, c.action, r.mode, r.outcome, r.shadow_alias_moved
+FROM decision_cards c LEFT JOIN retrain_runs r ON r.card_id = c.card_id;
+```
+
+This also keeps the Week 7 Decision Card contract frozen, which
+`RISK_ANALYSIS.md` §1 requires: `CardStatus` is still `OPEN`/`CLOSED`, and no
+Week 8 code widened a schema that Week 7 froze.
+
+### 16.7 Idempotency and restart
+
+`run_id` is derived from the card, the mode and the challenger version, and
+`(card_id, mode, challenger_version)` carries a unique constraint — the same
+two-place guarantee `decision_cards` uses. Before doing any expensive work the
+runner looks for an existing verdict for this card, mode and data version; if
+one exists it is returned and **nothing is retrained**. A worker that died
+between training and persisting is therefore safe to restart.
+
+A *different* challenger on the same card is a distinct row. That is not a
+loophole — it is what a second attempt after a BLOCK legitimately is, and what
+the deliberately-bad-challenger demonstration needs.
+
+### 16.8 Replay mode
+
+`ARCHITECTURE.md` §3.11: *"a cached-run replay mode re-registers a pre-trained
+challenger so the live demo completes in seconds (explicitly labeled as replay
+in the UI)."* The mode is a column on `retrain_runs`, not an inference, so a
+replayed run can never be mistaken for one that trained.
+
+**Replay accelerates producing a challenger; it never relaxes the bar.** The
+gate is the same function in both modes, and a test asserts that a bad
+challenger is blocked under replay exactly as under a live run.
+
+### 16.9 Verified on the live stack
+
+Against the running Compose Postgres and MLflow, on real Week 6/7 rows:
+
+| Step | Result |
+|---|---|
+| `retrain_runs` created by `init_db` on the existing Week 7 database | 17 columns, the ERD's six present |
+| Live retrain on card `dc-2026-01-01-894fe793` (S1 w0, policy-v2) | challenger **v2** registered, ~100 s |
+| Pinned data version enforced | card pin `ebbfae60…` = `dvc.lock` train md5 |
+| Gate | **PASS**, 47 checks over `frozen_holdout` (10,498 rows) + `recent_labeled_window` (2,000 rows) |
+| Aliases after | `champion` → 1 (unmoved), `challenger` → 2, `shadow` → 2 |
+| Alias moves audited | both, in `mlflow/registry_audit.jsonl` |
+| Replay on card `dc-2026-01-02-f0018348` | **PASS**, ~28 s, `mode=replay` |
+| Re-running a gated card | `[already on record]`, no retrain, still 2 rows |
+| Inverted challenger against the live champion (card `dc-2026-01-03-9bd13a7e`, not persisted) | **BLOCK**, 37 of 46 checks failed — all five criteria tripped with named numbers |
+
+The BLOCK row is the roadmap's "money shot" on real data rather than on a
+fixture: against the registered champion and the real evaluation sets, an
+inverted challenger fails discrimination
+(AUROC 0.397582 vs 0.602418, floor 0.597418), top-decile recall
+(0.049180 vs 0.170960), Brier (0.747287 against a 0.079107 ceiling),
+calibration (ECE 0.818115 against the absolute 0.05) and every comparable
+subgroup. It was computed read-only and deliberately not persisted, so the
+live `retrain_runs` table still holds only the two genuine runs above.
+
+The live challenger's metrics are *identical* to the champion's (AUROC 0.602418
+on the frozen holdout for both). That is the expected result and a useful one:
+the retrain ran the same seeded pipeline on the same pinned data, so a
+bit-reproducible training pipeline has to produce an equivalent model.
+
+### 16.10 Privacy
+
+A `gate_result` holds counts and aggregates only: `rows`, `positive_rate`, the
+four headline metrics, and per-subgroup AUROC keyed by category label. Verified
+against the live rows — no `encounter_id` or `patient_nbr` appears in any
+payload, and no raw feature value is carried. The MLflow challenger run logs
+params, metrics and tags; it logs **no dataset artifact**, for the reason
+`ml/tracking.py` gives — the processed CSVs are DVC's responsibility.
+
+### 16.11 What Week 8 deliberately does not do
+
+- **It does not promote.** No code path moves `champion`. Shadow scoring,
+  approval and promotion are Week 9.
+- **It adds no infrastructure.** No new Compose service, no scheduler, no API
+  endpoint — §5's topology gains nothing in Week 8, and the roadmap asks for
+  none. The gate is a CLI and a library call.
+- **It does not change Weeks 6 or 7.** No drift statistic, threshold, scenario,
+  policy rule or card field was altered. The one earlier file that changed is
+  `ml/evaluate.py`, where the report builder was extracted into `build_report`
+  so a challenger is measured by the champion's own reporting code;
+  `reports/metrics.json` is byte-identical afterwards, and `dvc.lock` is
+  regenerated in the same commit because `ml/evaluate.py` is a stage dependency.
+- **It does not add a "deliberately bad challenger" to the registry.** The
+  roadmap asks for a *fixture* proving BLOCK, and that is what
+  `tests/gate/conftest.py::InvertedChallenger` is — bad by construction rather
+  than by seed. Wiring a bad challenger into the clickable demo is Week 10.

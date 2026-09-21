@@ -18,6 +18,7 @@ from sklearn.metrics import (
 )
 
 from ml.config import DECISION_THRESHOLD, ECE_BINS, RELIABILITY_BINS, TOP_DECILE_FRACTION
+from ml.data.clean import TARGET_COLUMN
 
 
 def expected_calibration_error(y_true, y_prob, n_bins: int = ECE_BINS) -> float:
@@ -145,6 +146,48 @@ def subgroup_metrics(frame: pd.DataFrame, y_true, y_prob, columns) -> dict:
     return out
 
 
+def build_report(
+    frame: pd.DataFrame,
+    y_true,
+    raw_prob,
+    calibrated_prob,
+    *,
+    evaluation_slice: str,
+    subgroup_columns,
+) -> dict:
+    """The metric report for one evaluation slice.
+
+    Extracted from `main` so Week 8's retrain pipeline logs a challenger with
+    the *same* report the champion was published with. A challenger measured by
+    a second, similar-looking reporting path would not be comparable to the
+    numbers the gate is defending.
+    """
+    raw_metrics = score_predictions(y_true, raw_prob)
+    calibrated_metrics = score_predictions(y_true, calibrated_prob)
+
+    return {
+        "evaluation_slice": evaluation_slice,
+        "eval_rows": int(len(frame)),
+        "target": TARGET_COLUMN,
+        "positive_rate": round(float(np.asarray(y_true, dtype=float).mean()), 6),
+        "inference_model": "calibrated",
+        "raw": raw_metrics,
+        "calibrated": calibrated_metrics,
+        # Negative deltas mean calibration improved the probability estimates.
+        "calibration_effect": {
+            "brier_delta": round(calibrated_metrics["brier_score"] - raw_metrics["brier_score"], 6),
+            "log_loss_delta": round(calibrated_metrics["log_loss"] - raw_metrics["log_loss"], 6),
+            "ece_delta": round(
+                calibrated_metrics["expected_calibration_error"]
+                - raw_metrics["expected_calibration_error"],
+                6,
+            ),
+            "roc_auc_delta": round(calibrated_metrics["roc_auc"] - raw_metrics["roc_auc"], 6),
+        },
+        "subgroups_calibrated": subgroup_metrics(frame, y_true, calibrated_prob, subgroup_columns),
+    }
+
+
 def _write_calibration_figure(y_true, raw_prob, calibrated_prob, path) -> None:
     """Reliability curve for raw vs calibrated probabilities.
 
@@ -184,7 +227,6 @@ def main() -> None:
         REPORTS_DIR,
         SUBGROUP_COLUMNS,
     )
-    from ml.data.clean import TARGET_COLUMN
     from ml.data.features import split_features_target
     from ml.train import load_models, load_split
 
@@ -195,32 +237,16 @@ def main() -> None:
     raw_prob = base_model.predict_proba(X_eval)[:, 1]
     calibrated_prob = calibrated_model.predict_proba(X_eval)[:, 1]
 
-    raw_metrics = score_predictions(y_eval, raw_prob)
-    calibrated_metrics = score_predictions(y_eval, calibrated_prob)
-
-    report = {
-        "evaluation_slice": "datasets/processed/eval_frozen.csv",
-        "eval_rows": int(len(eval_df)),
-        "target": TARGET_COLUMN,
-        "positive_rate": round(float(eval_df[TARGET_COLUMN].mean()), 6),
-        "inference_model": "calibrated",
-        "raw": raw_metrics,
-        "calibrated": calibrated_metrics,
-        # Negative deltas mean calibration improved the probability estimates.
-        "calibration_effect": {
-            "brier_delta": round(calibrated_metrics["brier_score"] - raw_metrics["brier_score"], 6),
-            "log_loss_delta": round(calibrated_metrics["log_loss"] - raw_metrics["log_loss"], 6),
-            "ece_delta": round(
-                calibrated_metrics["expected_calibration_error"]
-                - raw_metrics["expected_calibration_error"],
-                6,
-            ),
-            "roc_auc_delta": round(calibrated_metrics["roc_auc"] - raw_metrics["roc_auc"], 6),
-        },
-        "subgroups_calibrated": subgroup_metrics(
-            eval_df, y_eval, calibrated_prob, SUBGROUP_COLUMNS
-        ),
-    }
+    report = build_report(
+        eval_df,
+        y_eval,
+        raw_prob,
+        calibrated_prob,
+        evaluation_slice="datasets/processed/eval_frozen.csv",
+        subgroup_columns=SUBGROUP_COLUMNS,
+    )
+    raw_metrics = report["raw"]
+    calibrated_metrics = report["calibrated"]
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     METRICS_PATH.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8", newline="\n")
