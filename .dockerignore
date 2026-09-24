@@ -1,0 +1,18 @@
+# Build context for docker/Dockerfile.* (context is the repository root).
+# The Dockerfiles COPY named directories only; this keeps stale bytecode out of
+# images and keeps data, models and local state out of the build context.
+**/__pycache__
+**/*.pyc
+.git
+.venv
+.pytest_cache
+.ruff_cache
+datasets
+models
+mlruns
+mlflow
+dvc-storage
+notebooks
+reports
+node_modules
+docker/.env

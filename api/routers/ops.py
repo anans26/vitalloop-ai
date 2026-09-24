@@ -97,6 +97,21 @@ def _approval_response(row: Approval, serving: dict | None = None) -> ApprovalRe
 
 
 # ---------------------------------------------------------------------------
+# Identity
+# ---------------------------------------------------------------------------
+@router.get(
+    "/whoami",
+    summary="The identity this token carries",
+    description=(
+        "Verifies the bearer token and returns its subject and role. Week 10's dashboard "
+        "uses it to check a pasted ops token without ever holding the signing secret."
+    ),
+)
+def whoami(principal: Principal = Depends(require_ops)) -> dict:
+    return {"subject": principal.subject, "role": principal.role}
+
+
+# ---------------------------------------------------------------------------
 # Serving and shadow
 # ---------------------------------------------------------------------------
 @router.get(

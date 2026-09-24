@@ -51,7 +51,7 @@ from loop.gate.persistence import (
     record_retrain_run,
     retrain_run_id,
 )
-from ml.retrain import MODE_LIVE, MODES, ChallengerRun
+from ml.retrain import GATED_MODES, MODE_DEMO_BAD, MODE_LIVE, MODE_REPLAY, ChallengerRun
 
 SHADOW_ALIAS = "shadow"
 
@@ -208,8 +208,8 @@ def run_card(
     reuse_existing: bool = True,
 ) -> GateRun:
     """Retrains, gates, persists and (on PASS) moves `shadow`, for one card."""
-    if mode not in MODES:
-        raise GateRunnerError(f"unknown retrain mode {mode!r}; expected one of {MODES}")
+    if mode not in GATED_MODES:
+        raise GateRunnerError(f"unknown retrain mode {mode!r}; expected one of {GATED_MODES}")
 
     card = dict(card_row.card_json)
     recorded_authorisation = check_authorised(
@@ -230,8 +230,18 @@ def run_card(
     champion_loader = champion_loader or _default_champion_loader
     frames_builder = frames_builder or _default_frames
 
-    challenger = retrainer(card, mode=mode)
-    champion_model, champion_version = champion_loader()
+    if mode == MODE_DEMO_BAD:
+        # Week 10: the constructed bad challenger is built *from* the champion,
+        # so the champion is loaded first; nothing is trained or registered.
+        from loop.gate.demo import bad_challenger
+
+        champion_model, champion_version = champion_loader()
+        challenger = bad_challenger(
+            champion_model, champion_version, data_version=card.get("candidate_data_version")
+        )
+    else:
+        challenger = retrainer(card, mode=mode)
+        champion_model, champion_version = champion_loader()
 
     effective = criteria or from_card(
         card.get("acceptance_criteria") or {}, card_id=card["card_id"]
@@ -241,7 +251,14 @@ def run_card(
 
     alias_audit = None
     moved = False
-    if result.passed and move_shadow_alias and challenger.registered_version:
+    # A constructed demo challenger is not in the registry, so it can never
+    # hold an alias -- even in the (by construction impossible) event it passed.
+    if (
+        result.passed
+        and move_shadow_alias
+        and challenger.registered_version
+        and mode != MODE_DEMO_BAD
+    ):
         setter = alias_setter or _default_alias_setter
         alias_audit = setter(
             challenger.registered_version,
@@ -376,7 +393,7 @@ def run_pending(
 def summarise(run: GateRun) -> str:
     """One line per verdict, for the CLI and the demo log."""
     challenger = run.challenger_version or "unregistered"
-    label = f"{run.mode}{' (replay)' if run.mode != MODE_LIVE else ''}"
+    label = f"{run.mode}{' (replay)' if run.mode == MODE_REPLAY else ''}"
     tail = ""
     if run.gate_result.blocked and run.gate_result.reasons:
         tail = f"  reasons: {len(run.gate_result.reasons)}"
@@ -393,7 +410,12 @@ def build_parser() -> argparse.ArgumentParser:
         description="Retrain the challenger a Decision Card authorises and gate it."
     )
     parser.add_argument("--card", default=None, help="one card id; default is every pending card")
-    parser.add_argument("--mode", default=MODE_LIVE, choices=list(MODES), help="live or replay")
+    parser.add_argument(
+        "--mode",
+        default=MODE_LIVE,
+        choices=list(GATED_MODES),
+        help="live, replay, or demo-bad (the constructed bad challenger, WORKFLOW.md §5.6)",
+    )
     parser.add_argument("--scenario", default=None, help="restrict the backlog to one stream")
     parser.add_argument("--limit", type=int, default=None, help="gate at most N cards")
     parser.add_argument(

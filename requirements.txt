@@ -5,8 +5,7 @@
 #
 #     pip install -r requirements.txt -c constraints.txt
 #
-# Week 1-7 dependencies only.
-# Later weeks add: streamlit, fpdf2 — introduced when their week starts.
+# Every week's dependencies through Week 10, grouped by the week that added them.
 
 pandas>=2.2
 numpy>=1.26
@@ -59,3 +58,9 @@ PyYAML>=6.0
 pydantic>=2.9
 # Measures the roadmap's "≥ 95% branch coverage on the engine" deliverable.
 pytest-cov>=5.0
+
+# Week 10 — dashboard and audit report.
+# TECH_STACK.md: Streamlit for the six dashboard pages; fpdf2 for the per-card
+# audit PDF ("pure-Python, no native dependencies -- important on Windows").
+streamlit>=1.59
+fpdf2>=2.8

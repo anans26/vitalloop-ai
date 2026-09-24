@@ -13,6 +13,7 @@ from tests.approval.conftest import CHALLENGER, CHAMPION, FakeRegistry, seed_run
 from tests.gate.conftest import seed_card
 
 OPS_ENDPOINTS = [
+    ("get", "/ops/whoami"),
     ("get", "/ops/shadow"),
     ("post", "/ops/models/reload"),
     ("get", "/ops/cards/dc-x/narrative"),
@@ -82,6 +83,14 @@ def test_a_clinician_cannot_reach_any_ops_endpoint(method, path, api_client, aut
 @pytest.mark.parametrize(("method", "path"), OPS_ENDPOINTS)
 def test_an_anonymous_caller_cannot_reach_any_ops_endpoint(method, path, api_client):
     assert _call(api_client, method, path, {}).status_code == 401
+
+
+def test_whoami_returns_the_verified_identity(api_client, ops_headers):
+    """Week 10's dashboard checks a pasted token here instead of holding the secret."""
+    assert api_client.get("/ops/whoami", headers=ops_headers).json() == {
+        "subject": "ops-alice",
+        "role": "ops",
+    }
 
 
 def test_the_body_cannot_name_the_approver(api_client, ops_headers):

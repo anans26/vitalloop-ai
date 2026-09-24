@@ -1,0 +1,45 @@
+# VitalLoop dashboard (Week 10): Streamlit, ARCHITECTURE.md §3.14.
+#
+# Same dependency files as the API and monitor images, for the same reason: one
+# source of truth for versions (requirements.txt + constraints.txt).
+#
+# The dashboard reads Postgres and MLflow directly (ARCHITECTURE.md §5) and
+# runs the demo's operational steps with the monitor's and gate's own code, so
+# it carries loop/, scenarios/, configs/ and dvc.lock (the retrain verifies the
+# card's pinned data hash against it). Human decisions go through the API with
+# the signed-in user's token; this image holds no JWT secret.
+#
+# Data, the model and reports arrive as bind mounts at run time, never as image
+# layers -- see the `dashboard` service in docker-compose.yml.
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# libgomp is LightGBM's OpenMP runtime; the slim image does not ship it.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt constraints.txt ./
+RUN pip install --upgrade pip \
+    && pip install -r requirements.txt -c constraints.txt
+
+COPY dashboard/ ./dashboard/
+COPY loop/ ./loop/
+COPY scenarios/ ./scenarios/
+COPY configs/ ./configs/
+COPY db/ ./db/
+COPY ml/ ./ml/
+COPY api/ ./api/
+COPY scripts/ ./scripts/
+COPY dvc.lock ./dvc.lock
+
+EXPOSE 8501
+
+CMD ["streamlit", "run", "dashboard/app.py", \
+     "--server.address=0.0.0.0", "--server.port=8501", \
+     "--server.headless=true", "--browser.gatherUsageStats=false"]

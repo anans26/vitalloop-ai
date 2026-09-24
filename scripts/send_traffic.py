@@ -50,6 +50,11 @@ def payloads(frame: pd.DataFrame) -> list[dict]:
     return rows
 
 
+def load_rows(*, offset: int = 0, count: int = 60) -> pd.DataFrame:
+    """`count` stream rows starting at `offset`, with ICD-9 codes kept as text."""
+    return pd.read_csv(STREAM_PATH, skiprows=range(1, offset + 1), nrows=count, dtype=TEXT_COLUMNS)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Replay serving-stream rows through /predict.")
     parser.add_argument("--count", type=int, default=60, help="requests to send")
@@ -58,9 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--subject", default="traffic-replay", help="token subject")
     args = parser.parse_args(argv)
 
-    frame = pd.read_csv(
-        STREAM_PATH, skiprows=range(1, args.offset + 1), nrows=args.count, dtype=TEXT_COLUMNS
-    )
+    frame = load_rows(offset=args.offset, count=args.count)
     token = create_access_token(args.subject, role="clinician", settings=get_settings())
     headers = {"Authorization": f"Bearer {token}"}
 

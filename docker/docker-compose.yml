@@ -127,6 +127,44 @@ services:
       postgres:
         condition: service_healthy
 
+  # Week 10: the Streamlit dashboard (ARCHITECTURE.md §3.14, §5 `dashboard`
+  # :8501). It reads Postgres and MLflow directly and makes every human
+  # decision through the API under the signed-in user's token, so it holds no
+  # JWT secret. Its demo buttons run the monitor's and the gate's own code,
+  # which is why it mounts the same data, model and report directories the
+  # monitor does, plus ../mlflow for the registry's alias audit trail.
+  dashboard:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dashboard
+    environment:
+      VITALLOOP_API_URL: http://api:8000
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      VITALLOOP_POLICY_VERSION: ${VITALLOOP_POLICY_VERSION:-policy-v2}
+      VITALLOOP_MODEL_SOURCE: ${VITALLOOP_MONITOR_MODEL_SOURCE:-local}
+      VITALLOOP_MLFLOW_TRACKING_URI: http://mlflow:5000
+      VITALLOOP_NARRATION_BACKEND: ${VITALLOOP_NARRATION_BACKEND:-template}
+      VITALLOOP_OLLAMA_URL: ${VITALLOOP_OLLAMA_URL:-http://ollama:11434}
+      VITALLOOP_OLLAMA_MODEL: ${VITALLOOP_OLLAMA_MODEL:-llama3.1:8b}
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-vitalloop}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in docker/.env}
+      POSTGRES_DB: ${POSTGRES_DB:-vitalloop}
+    ports:
+      - "8501:8501"
+    volumes:
+      - ../datasets/processed:/app/datasets/processed:ro
+      - ../models:/app/models:ro
+      - ../reports:/app/reports
+      - ../mlflow:/app/mlflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+      api:
+        condition: service_started
+
   # Week 9: the narration LLM (ARCHITECTURE.md §3.10, §5 "ollama is an
   # optional profile"). Not started by a plain `docker compose up`:
   #

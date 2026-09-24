@@ -45,6 +45,16 @@ MODE_LIVE = "live"
 MODE_REPLAY = "replay"
 MODES = (MODE_LIVE, MODE_REPLAY)
 
+# Week 10: WORKFLOW.md §5 step 6 -- "Re-run with the deliberately bad
+# challenger -> gate BLOCK" -- makes the bad challenger part of the clickable
+# demo, which Week 8 handed forward. It is a third, explicitly labelled mode
+# rather than a disguised `live` or `replay`: a constructed model must never be
+# mistaken for one that trained. `retrain_from_card` still accepts only
+# `MODES` -- nothing trains or registers in this mode -- and only the gate
+# runner (loop/gate/demo.py) builds one.
+MODE_DEMO_BAD = "demo-bad"
+GATED_MODES = (*MODES, MODE_DEMO_BAD)
+
 CHAMPION_ALIAS = "champion"
 CHALLENGER_ALIAS = "challenger"
 
@@ -78,8 +88,8 @@ class ChallengerRun:
     alias_audit: dict | None = None
 
     def __post_init__(self) -> None:
-        if self.mode not in MODES:
-            raise RetrainError(f"unknown retrain mode {self.mode!r}; expected one of {MODES}")
+        if self.mode not in GATED_MODES:
+            raise RetrainError(f"unknown retrain mode {self.mode!r}; expected one of {GATED_MODES}")
 
     @property
     def is_replay(self) -> bool:

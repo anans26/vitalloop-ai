@@ -81,11 +81,13 @@ MLOPS PROJECT/
 ├── node_modules/                   # Pre-existing; only `marked`, used by build_pdf.mjs
 ├── models/                          # Fitted model bundle + run metadata (DVC outputs, gitignored)
 ├── api/                             # Week 5 FastAPI serving layer (auth, schemas, routers)
+├── dashboard/                       # Week 10 Streamlit dashboard: 6 pages, demo actions, audit PDF
 ├── db/                              # SQLAlchemy models + session handling for the audit trail
 ├── loop/                            # The self-healing loop
 │   ├── monitor/                     #   Week 6: Evidently drift runs, drift_events persistence
 │   ├── engine/                      #   Week 7: policy table, confidence, Decision Card emission
-│   ├── gate/                        #   Week 8: validation gate (pure function) + criteria loading
+│   ├── gate/                        #   Week 8: validation gate (pure function) + criteria loading;
+│   │                                #   Week 10: demo.py, the constructed bad challenger
 │   ├── narrate/                     #   Week 9: grounding check, Jinja2 template, Ollama client
 │   ├── shadow/                      #   Week 9: shadow agreement statistics (pure function)
 │   └── approval/                    #   Week 9: retrain authorisation + promotion (moves champion)
@@ -103,7 +105,7 @@ MLOPS PROJECT/
 └── .gitignore
 ```
 
-**Folders that do not exist yet** (per `project_docs/ARCHITECTURE.md` §10's target structure): `dashboard/` (Week 10). It belongs to a specific future week (see §6/§11) and has not been created — creating empty stub folders for unimplemented modules is deliberately avoided. (This sentence listed `api/`, `loop/`, `db/`, `scenarios/`, `configs/`, `scripts/` and `reports/` as missing until Week 8; they were built in Weeks 5–8 and the list had gone stale.)
+**Folders that do not exist yet:** none of `project_docs/ARCHITECTURE.md` §10's target folders remain unbuilt as of Week 10. (`README.md` and the seed/reset scripts PROJECT_DESIGN.md lists under `scripts/` are Week 11 work and do not exist.) (This sentence listed `api/`, `loop/`, `db/`, `scenarios/`, `configs/`, `scripts/` and `reports/` as missing until Week 8; they were built in Weeks 5–8 and the list had gone stale.)
 
 ---
 
@@ -327,7 +329,7 @@ The five-plane target (data → model → serving → self-healing loop → obse
 - **Modules completed:** validation, cleaning, feature engineering (built and tested, not yet consumed by a model), splitting, DVC orchestration.
 - **APIs completed:** none (Week 5).
 - **Database work:** none beyond Week 1's empty container.
-- **Frontend work:** none (Week 10).
+- **Frontend work:** none (Week 10 added the Streamlit dashboard).
 - **Backend work:** the data pipeline itself is the "backend" work at this stage.
 - **AI/ML work:** none new (feature pipeline is ML-adjacent infrastructure, not a model).
 - **Testing:** 164 pytest tests, all passing; `ruff check .` and `ruff format --check .` clean.
@@ -394,11 +396,11 @@ The five-plane target (data → model → serving → self-healing loop → obse
 | Decision Engine + Decision Card | ✅ Completed | `configs/policy-v*.yaml` + `loop/engine/` — the versioned six-rule policy table, the decomposed confidence formula, the frozen Pydantic Decision Card, and `decision_cards` persistence with idempotent re-evaluation. `policy-v2` carries the control calibration the roadmap assigns; `policy-v1` is retained unedited because cards reference it |
 | Retrain pipeline + validation gate | ✅ Completed | `ml/retrain.py` + `configs/gate-v1.yaml` + `loop/gate/` — the DVC-pinned challenger run (live or `replay`), the versioned promotion criteria, the gate as a pure function over two metric sets, `retrain_runs` persistence with idempotent re-gating, and `shadow` on PASS. `champion` is never moved here |
 | Shadow deployment, approval, LLM narration | ✅ Completed | `api/shadow.py` + `loop/shadow/` — post-response shadow scoring into `shadow_predictions` and agreement statistics; `loop/approval/` + `api/routers/ops.py` — ops-role retrain authorisation and promotion into `approvals`, the only path that moves `champion`; `loop/narrate/` — Jinja2 narrative (default + fallback), optional self-hosted Ollama, grounding check. See `RUNNING_THE_PROJECT.md` §17 |
-| Dashboard (Streamlit) + audit PDF | ⬜ Not started | 0% — Week 10 |
+| Dashboard (Streamlit) + audit PDF | ✅ Completed | `dashboard/` — the six §3.14 pages (Overview, Drift Monitor, Decision Cards, Champion vs Challenger, Approvals, Audit) behind an API-verified ops token; the drift-injection button (S1/S2), retrain/replay/bad-challenger buttons and demo traffic; the fpdf2 per-card audit PDF. Decisions go through the API's `/ops` endpoints. See `RUNNING_THE_PROJECT.md` §18 |
 | CI/CD hardening | 🟡 Partially completed | Basic lint+test CI exists; training smoke test, gate check, and image build stages are Week 11 |
 | Report / viva prep | ⬜ Not started | 0% — Week 12 |
 
-**Overall project completion: 9 of 12 weeks (75%) by roadmap time — the full governed loop runs end to end: drift → card (narrated) → human authorisation → retrain → gate → shadow scoring → human approval → promotion, every step persisted. What is missing is the dashboard that makes it clickable (Week 10), CI hardening (Week 11) and the report (Week 12).**
+**Overall project completion: 10 of 12 weeks (~83%) by roadmap time — the full governed loop runs end to end and is clickable from the dashboard: inject drift → narrated card → human authorisation → retrain (live, replay, or the deliberately bad challenger) → gate → shadow → human approval → live promotion → audit PDF. What is missing is CI hardening and the fresh-machine seed/reset (Week 11) and the report (Week 12).**
 
 ---
 
@@ -484,9 +486,8 @@ There is currently no request flow, no frontend-backend communication, and no AI
 
 ## 11. Pending Features — NOT IMPLEMENTED
 
-Everything below is described only because it is planned in `project_docs/IMPLEMENTATION_ROADMAP.md`. **None of it exists in the repository today.** (Weeks 3–9 — the model, calibration, SHAP, MLflow tracking and registry, the authenticated serving API with its Postgres audit trail, the Evidently drift monitor with the S1–S5 benchmark, the deterministic Decision Engine with its versioned policy and Decision Cards, the retrain pipeline with its validation gate, and shadow scoring, the approval flow and grounded narration — have since been implemented and are no longer listed.) It is listed here purely so a new developer knows what is coming and doesn't go looking for it.
+Everything below is described only because it is planned in `project_docs/IMPLEMENTATION_ROADMAP.md`. **None of it exists in the repository today.** (Weeks 3–10 — the model, calibration, SHAP, MLflow tracking and registry, the authenticated serving API with its Postgres audit trail, the Evidently drift monitor with the S1–S5 benchmark, the deterministic Decision Engine with its versioned policy and Decision Cards, the retrain pipeline with its validation gate, shadow scoring, the approval flow and grounded narration, and the dashboard with its audit PDF — have since been implemented and are no longer listed.) It is listed here purely so a new developer knows what is coming and doesn't go looking for it.
 
-- **Week 10 — NOT IMPLEMENTED:** the Streamlit dashboard, audit PDF export (fpdf2).
 - **Week 11 — NOT IMPLEMENTED:** CI training smoke run, gate check stage, Docker image build stage, coverage gates beyond what exists today.
 - **Week 12 — NOT IMPLEMENTED:** final report, benchmark result tables, demo video, tagged release.
 
@@ -501,6 +502,7 @@ If any other document (including AI-generated summaries) describes any of the ab
 - **Where model code lives:** `ml/train.py`, `ml/evaluate.py`, `ml/explain.py`, configured by `ml/config.py` (Week 3; implemented). Changing any of these re-runs the DVC model stages — commit the regenerated `dvc.lock` alongside the change.
 - **Where tracking and registry code lives:** `ml/tracking.py` and `ml/registry.py` (Week 4; implemented). An alias must only ever move through `ml.registry.set_alias`, so the audit row cannot be skipped.
 - **Where the LLM lives:** `loop/narrate/` (Week 9; implemented). Ollama is the only LLM backend (§9); `prompt.py` is everything it may see (the Decision Card, minus its narrative fields), `grounding.py` is the check every LLM narrative must pass, and `templates/decision_card-v*.j2` is the deterministic default and fallback. A new template wording is a new versioned file, because stored narratives name the version that wrote them.
+- **Where the dashboard lives:** `dashboard/` (Week 10; implemented). Pages are `render(ctx)` functions in `dashboard/views/` and hold layout only; every query is in `dashboard/data.py` (read-only), every non-decision action in `dashboard/actions.py`, and every human decision goes through `dashboard/api_client.py` to the API's `/ops` endpoints. The roadmap caps it at six pages — a new screen belongs on an existing page. The audit PDF is `dashboard/audit_pdf.py` (`python -m dashboard.audit_pdf --card <id>`).
 - **Where the approval flow and shadow statistics live:** `loop/approval/` and `loop/shadow/` (Week 9; implemented), exposed through `api/routers/ops.py`. `loop/approval/promotion.py` is the only code that moves `champion` after initial registration, and a test enforces that; the promotion thresholds live in `configs/promotion-v*.yaml`.
 - **Where configuration lives:** `configs/` holds the versioned decision policies (`policy-v1.yaml` and `policy-v2.yaml`, the latter in force) and the versioned promotion criteria (`gate-v1.yaml`). A number the system *decides* with belongs there, so a change to it is a reviewable diff; a number the system only *measures* with stays as a module constant beside its code (`ml/config.py`, `loop/monitor/config.py`). Environment variables go in a gitignored `.env` with a committed `.env.example`.
 - **Where monitoring code lives:** `loop/monitor/` (Week 6; implemented) and `scenarios/` for the S1–S5 benchmark.

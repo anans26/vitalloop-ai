@@ -581,7 +581,7 @@ pytest -q tests/test_api_auth.py tests/test_api_predict.py          tests/test_a
 **How to verify the installation:**
 ```bash
 pytest -q
-# Expected: 1138 passed
+# Expected: 1225 passed
 ruff check .
 # Expected: All checks passed!
 ruff format --check .
@@ -609,7 +609,7 @@ print('No patient leakage across splits: OK')
 "
 ```
 
-**How to verify the UI:** not applicable — no UI exists yet.
+**How to verify the UI:** `pytest tests/dashboard -q` renders all six pages headlessly with Streamlit's `AppTest` and clicks every demo button; §18.7 lists the live walkthrough.
 
 **How to verify AI integration:** `pytest tests/narrate -q` exercises the grounding check, the template on every policy branch, and the Ollama client over a mocked transport — no model download needed. See §17.6 for a live Ollama run.
 
@@ -634,9 +634,10 @@ print('No patient leakage across splits: OK')
 
 ## 12. Current Limitations
 
-(Scoped strictly to Week 9 — this is not a roadmap of what's missing overall, just what a developer running the project today should know.)
+(Scoped strictly to Week 10 — this is not a roadmap of what's missing overall, just what a developer running the project today should know.)
 
-- **No frontend.** The Streamlit dashboard is Week 10. The approval "click" §3.13 describes is, for now, a call to the `/ops` endpoints (OpenAPI page at `/docs`); Week 10's Approvals page will call the same endpoints.
+- **The 3-minute demo needs a rehearsed state.** Replay is only useful while a PASSed challenger is cached and not yet the champion; after a promotion the dashboard refuses replay and a live retrain (~70 s) is needed, which puts the demo path at about 3½ minutes (§18.7). The seed/reset script that rebuilds demo state is Week 11.
+- **The dashboard has no user accounts.** It trusts the API's verdict on a pasted token (§18.4); token issuance is still the dev script.
 - **Serving latency is above target.** A warm `/predict` takes roughly 350 ms against the roadmap's < 200 ms goal; per-request SHAP dominates. The roadmap's own mitigations (batching, a cached explainer path) are not implemented.
 - **No benchmark card retrains unattended.** Every S1–S3 card escalates (confidence 0.39–0.67 against the 0.75 auto-proceed line), so the automated path is implemented and tested but is never the path the seeded benchmark takes; a retrain on this data needs an ops user's `APPROVE` (§17.3).
 - **Shadow statistics are trivially perfect on this data.** A retrain runs the same seeded pipeline on the same pinned data, so every challenger so far is bit-identical to the champion and the live shadow windows report agreement 1.0 with zero score difference (§17.7). The statistics are tested on non-trivial pairs; the live stack has simply not produced a different model yet.
@@ -654,7 +655,7 @@ print('No patient leakage across splits: OK')
 
 ## 13. Current Project Status
 
-**Completed (Week 1 through Week 9 exit criteria):**
+**Completed (Week 1 through Week 10 exit criteria):**
 - Repo scaffold, ruff + pre-commit + basic CI (lint + test) configuration
 - Docker Compose running PostgreSQL 16 (holding `predictions`, `drift_events`, `decision_cards`, `retrain_runs`, `approvals` and `shadow_predictions`)
 - UCI Diabetes 130-US dataset downloaded and verified (101,766 × 50 columns)
@@ -677,10 +678,11 @@ print('No patient leakage across splits: OK')
 - `configs/policy-v1.yaml`, `configs/policy-v2.yaml` + `loop/engine/` — the deterministic Decision Engine: the versioned six-rule policy table, the decomposed confidence formula, the frozen Pydantic Decision Card, `decision_cards` persistence with idempotent re-evaluation, and the evaluator CLI
 - The control calibration the roadmap assigns to Week 6, applied as `policy-v2`: the S1–S5 benchmark now yields `FULL_RETRAIN` on S1–S3 in their first window and `NO_OP` on every control window (§15.6)
 - `configs/gate-v1.yaml` + `loop/gate/` + `ml/retrain.py` + `scripts/replay_retrain.py` — the Week 8 retrain-and-gate step: the DVC-pinned challenger run (live or replay), the versioned promotion criteria, the pure validation gate, `retrain_runs` persistence with idempotent re-gating, and the runner CLI
+- Week 10: the Streamlit dashboard (`dashboard/`, six pages behind an API-verified ops token, on :8501 in Compose), the S1/S2 drift-injection button, retrain/replay/deliberately-bad-challenger buttons, demo traffic, and the fpdf2 per-card audit PDF
 - Week 9: shadow scoring after the response (`api/shadow.py`, `loop/shadow/`, `shadow_predictions`); the ops-role approval flow for escalated retrains and for promotion (`loop/approval/`, `api/routers/ops.py`, `approvals`, `configs/promotion-v1.yaml`) — the only path that moves `champion`; grounded narration (`loop/narrate/`: Jinja2 default and fallback, optional self-hosted Ollama)
-- 1138/1138 pytest tests passing (Week 9: 97% branch coverage on `loop/approval/promotion.py`, 100% on `loop/approval/retrain.py`, `loop/shadow/stats.py`, `loop/narrate/narrator.py` and `ollama.py`) (99% branch coverage on the Decision Engine, 99% on `loop/gate/` and 100% on `ml/retrain.py`); `ruff check .` and `ruff format --check .` clean
+- 1225/1225 pytest tests passing (Week 10: 91% branch coverage over `dashboard/` + `loop/gate/` + `api/`, 98% on `dashboard/data.py`, 97% on `dashboard/audit_pdf.py`; Week 9: 97% branch coverage on `loop/approval/promotion.py`, 100% on `loop/approval/retrain.py`, `loop/shadow/stats.py`, `loop/narrate/narrator.py` and `ollama.py`) (99% branch coverage on the Decision Engine, 99% on `loop/gate/` and 100% on `ml/retrain.py`); `ruff check .` and `ruff format --check .` clean
 
-**In Progress:** nothing — Week 9 is a clean stopping point with no partially-built component.
+**In Progress:** nothing — Week 10 is a clean stopping point with no partially-built component.
 
 **Open question carried into Week 4:** the Week 3 model scores ~0.60 ROC-AUC,
 below the ~0.64–0.69 range `project_docs/DATASET_ANALYSIS.md` cites for this
@@ -694,7 +696,7 @@ identical conditions. Whether to restate the roadmap's "at or above published
 benchmarks" outcome in light of the stricter protocol is a decision for review,
 not something Week 3 resolved by tuning.
 
-**Remaining (Week 10 onward — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full list):** the Streamlit dashboard + audit PDF export, CI/CD hardening, and final reporting/viva prep.
+**Remaining (Week 11 onward — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full list):** CI/CD hardening with the seed/reset demo scripts, and final reporting/viva prep.
 
 ---
 
@@ -1629,3 +1631,160 @@ had to read ICD-9 codes as text.
   `ml/registry.py` gained `actor=` and `delete_alias`; `/predict` queues the
   shadow; Compose gained the MLflow `--allowed-hosts` fix, the API's audit
   mount and the optional `ollama` profile.
+
+
+---
+
+## 18. Week 10 — Dashboard and Audit Report
+
+### 18.1 What it does
+
+Week 10 makes the loop visible and clickable. `IMPLEMENTATION_ROADMAP.md`,
+Week 10: *"Streamlit pages — Overview, Drift Monitor, Decision Cards (with
+narrative), Champion vs Challenger, Approvals, Audit; drift-injection button
+wired to S1/S2; fpdf2 audit-PDF export per card; polish the 3-minute demo
+path."* The page list is ARCHITECTURE.md §3.14's, and the roadmap caps it:
+*"6 pages, no more."*
+
+| Module | Role |
+|---|---|
+| `dashboard/app.py` | the Streamlit entry point: sign-in, then the six pages |
+| `dashboard/views/*.py` | one `render(ctx)` per page; layout only |
+| `dashboard/data.py` | every query a page shows — read-only — and the derived card lifecycle state |
+| `dashboard/actions.py` | the demo's non-decision buttons: inject drift, retrain + gate, demo traffic |
+| `dashboard/api_client.py` | every human decision, through the API's `/ops` endpoints under the user's token |
+| `dashboard/audit_pdf.py` | the per-card audit PDF (fpdf2), and `python -m dashboard.audit_pdf --card <id>` |
+| `dashboard/context.py` | the token check (`/ops/whoami`), a private DB engine, registry reads |
+| `loop/gate/demo.py` | the deliberately bad challenger for WORKFLOW.md §5 step 6 |
+| `docker/Dockerfile.dashboard` + the `dashboard` Compose service | Streamlit on :8501 |
+
+### 18.2 Running it
+
+```bash
+docker compose up -d                       # from docker/: now includes `dashboard` on :8501
+python -m scripts.issue_dev_token --subject <you> --role ops   # paste into the sidebar
+
+# or, outside Compose (same env as the monitor + MLFLOW_TRACKING_URI + VITALLOOP_API_URL)
+streamlit run dashboard/app.py
+
+# the audit PDF from the command line (writes reports/audit/<card>.pdf)
+python -m dashboard.audit_pdf --card dc-2026-01-01-294d3a1d
+```
+
+### 18.3 The six pages
+
+| Page | Shows | Does |
+|---|---|---|
+| **Overview** | API-served version, the three aliases, audited predictions by model version, latency, drift windows, cards by lifecycle state, the demo path | *Send requests* — real `/predict` calls under your token |
+| **Drift Monitor** | every window per stream (max/prediction PSI, breaches), per-feature PSI/KS, the Evidently HTML report | *Inject drift* (S1 or S2) — measure and decide the next window |
+| **Decision Cards** | cards filtered by stream/action/state; detail with the narrative, its source and grounding verdict, evidence, confidence terms, pinned criteria, runs, decisions | — |
+| **Champion vs Challenger** | aliases; every gate verdict with its mode (REPLAY / live / CONSTRUCTED BAD) labelled; champion-beside-challenger metrics; BLOCK reasons; every check | *Retrain + gate* — replay, live, or the bad challenger |
+| **Approvals** | pending promotions with the full evidence chain (gate numbers, worst subgroup drop, shadow window, each precondition); escalated retrains with their narrative | *Approve* / *Reject* with a required reason |
+| **Audit** | one searchable, time-ordered log across drift windows, cards, retrain runs, decisions and alias moves; prediction audit rows by request id, input hash or caller | *Build audit PDF* → download |
+
+### 18.4 Who the dashboard acts as
+
+The dashboard has no user store and **holds no JWT secret** — a dashboard that
+could sign tokens could record a decision in anyone's name. You paste an `ops`
+token; the dashboard asks the API who it belongs to (`GET /ops/whoami`, the one
+endpoint Week 10 adds) and stays locked until the API says `ops`. A clinician
+token is refused.
+
+It **reads** Postgres and MLflow directly, as §5 draws it. Every **human
+decision** — authorising a retrain, approving or rejecting a promotion — is a
+call to the Week 9 `/ops` endpoints with your token, so the approver on the
+`approvals` row is the API's verified subject, every Week 9 precondition is
+enforced where it lives, the API's refusals are shown verbatim, and an approved
+promotion reloads the serving model inside the API: the champion changes live.
+
+### 18.5 The buttons, and why they cannot corrupt the history
+
+- **Inject drift** measures the **next unmeasured window** of S1 or S2 with the
+  worker's own chain (`measure_window` → `record_window` → `evaluate_event`),
+  then narrates and stores its card. Pressing it again measures the window
+  after; a window already on record is never measured twice. (Re-running
+  `scenarios.run_scenario` *does* append duplicate windows — §17.7's note — and
+  Week 7's persistence rule then reads them as drift that lasted. The button
+  cannot.) When the stream's windows are exhausted it says so.
+- **Retrain + gate** is Week 8's `run_card`. An escalated card still needs an
+  ops user's recorded `APPROVE` first. Three modes, each labelled wherever a
+  run is shown:
+  - **replay** re-registers the cached challenger (seconds). It is refused up
+    front when the cached challenger *is* the serving champion — it could only
+    PASS and then never be shadowed — with "run a live retrain instead".
+  - **live** trains with the champion's own pipeline on the pinned data (~65–80 s).
+  - **demo-bad** is the deliberately bad challenger: the champion's ranking
+    inverted, built by `loop/gate/demo.py`, **never trained, logged or
+    registered**, labelled `demo-bad` on its `retrain_runs` row, and judged by
+    the *same* gate with the card's own criteria. It extends Week 8's
+    `live | replay` modes additively; `retrain_from_card` still refuses it.
+  After a PASS the page reloads the API so the new shadow starts scoring.
+  Clicking twice returns the verdict on record (Week 8 idempotency).
+- **Send requests** replays held-out stream rows through `/predict`; each is an
+  audit row and, while a shadow is loaded, a shadow score.
+
+### 18.6 The audit PDF
+
+WORKFLOW.md step 18: *"one click renders the CMS-style audit PDF for any
+Decision Card."* Nine sections: the decision; the narrative with its source and
+grounding verdict (§3.10's "narrative section of the audit report"); the trigger
+evidence; the policy's reasoning and confidence terms; the acceptance criteria
+pinned before training; every retrain run and gate verdict (replay and the
+constructed bad challenger labelled, BLOCK reasons listed); every human decision
+with its reason; every registry alias move that names the card, with its actor;
+lineage. It ends with the privacy statement.
+
+It is built as data first (`build_report`, tested as data) and laid out second
+(`render_pdf`, fpdf2 core fonts, no native dependencies). **Byte-reproducible**:
+the same rows and the same `generated_at` give the same bytes.
+
+### 18.7 Verified on the live stack
+
+Against the running Compose Postgres, MLflow, API and the new `dashboard`
+container, on 2026-09-24. Pages were driven with Streamlit's `AppTest` against
+the live services with a real ops token; the heavy actions were also run inside
+the dashboard container to prove its mounts.
+
+| Demo step | Result |
+|---|---|
+| Sign-in | clinician token → "Token refused"; ops token → Overview (serving v3) |
+| All six pages on live data | render without error (1–14 s; the first Overview load includes MLflow lookups) |
+| 1. Send 10 requests | 10 scored by v3 |
+| 2. Inject drift S1 (**inside the container**) | window 4 measured (next unmeasured), Evidently report written, card `dc-2026-01-05-196d00de` FULL_RETRAIN / ESCALATE_HUMAN, 25 s |
+| 3. Decision Cards | card AWAITING AUTHORISATION; template narrative, grounding passed |
+| 4. Approvals → authorise | `APPROVE` recorded as `ops-demo` via the API |
+| 4. Replay | **refused**: cached challenger v3 is the serving champion |
+| 4. Live retrain (**inside the container**) | v4 — **BLOCK**, genuinely: on S1 window 4 the recent-window ECE is 0.0602 for champion *and* challenger, above the absolute 0.05 ceiling |
+| 4. Live retrain on S2 card `dc-2026-01-01-294d3a1d` via the page | v5 PASS, shadow → v5, API reloaded ("serving v3, shadowing v5"), 77 s |
+| 5. Send 55 requests → Approvals → approve | champion **v3 → v5**, the API serves v5 without a restart; new traffic served by v5 |
+| 6. Bad challenger on the same card | **BLOCK**, 36 failed checks, nothing moved; a second click → "Already on record" |
+| 6. Audit → Build PDF; and the CLI in the container | download offered; `reports/audit/dc-2026-01-01-294d3a1d.pdf` (4 pages, full lineage) |
+| Restart `api` + `dashboard` | API back on champion v5; all pages render |
+| Privacy | 42 live cards' reports: 0 identifier or PHI hits, all byte-reproducible; no JWT variable in the dashboard container |
+
+**Timing, honestly.** The machine time of steps 1–6 was about 3½ minutes with a
+live retrain (~77 s) and a 55-request shadow window (~60 s at the API's per-request
+SHAP latency, §12). Replay instead of live saves ~50 s and brings the path under
+three minutes — but only when a PASSed challenger is cached and not yet the
+champion, which after any promotion it is not. Rebuilding that demo state on
+demand is the seed/reset script, which the roadmap assigns to Week 11.
+
+### 18.8 Privacy
+
+- Pages and the PDF are built from the aggregate audit rows only. The
+  prediction lookup shows the input **hash**, never the input.
+- The approval-reason box warns that its text is stored in the audit trail.
+- The dashboard container holds no JWT secret and no LLM credential; narration
+  of injected windows uses the same template-default, Ollama-optional path as
+  the monitor, with the Decision Card as the only input.
+
+### 18.9 What Week 10 deliberately does not do
+
+- **No seed/reset script, no README quickstart, no CI changes** — Week 11.
+- **No seventh page.** Escalated-retrain authorisation lives on Approvals.
+- **No change to Weeks 6–9 decisions.** Additive changes only: the `demo-bad`
+  gate mode (and the runner's refusal to alias it), `GET /ops/whoami`,
+  `scripts/send_traffic.load_rows`, the `dashboard` service, a root
+  `.dockerignore` (the Week 9 API image had shipped a stale `.pyc`), and
+  `streamlit`/`fpdf2` in `requirements.txt` (six new pins in `constraints.txt`,
+  no existing pin changed).
