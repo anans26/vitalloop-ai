@@ -13,6 +13,7 @@ same thing over a backlog for anyone replaying Week 6's benchmark.
 
 import argparse
 import sys
+from collections.abc import Callable
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -21,7 +22,7 @@ from db.models import DriftEvent
 from loop.engine.card import DecisionCard
 from loop.engine.engine import decide
 from loop.engine.history import evidence_for
-from loop.engine.persistence import record_decision
+from loop.engine.persistence import find_existing, record_decision
 from loop.engine.policy import DEFAULT_POLICY_VERSION, Policy, load_policy
 
 
@@ -49,19 +50,40 @@ def evaluate_event(
     persist: bool = True,
     data_version: str | None = None,
     now: datetime | None = None,
+    narrator: Callable[[DecisionCard], DecisionCard] | None = None,
 ) -> tuple[DecisionCard, bool]:
     """Decides one window. Returns `(card, written)`.
 
     `written` is False when the decision was not persisted -- either because
     `persist=False`, or because this policy version had already decided this
     window and the existing card stands.
+
+    `narrator` attaches the narrative (Week 9); the default is
+    `default_narrator`. It receives a card whose decision is already fixed.
     """
     evidence = evidence_for(session, event, policy, candidate_data_version=data_version)
     card = decide(evidence, policy, now=now)
+
+    # Already decided: the stored card stands, and there is nothing to narrate.
+    if persist and find_existing(session, event.event_id, policy.version) is not None:
+        return card, False
+
+    # WORKFLOW.md step 13: "Emits the Decision Card; LLM narration attached
+    # afterwards". After `decide`, so the narrative can never influence the
+    # decision; before the write, so the stored card is never edited later.
+    card = (narrator or default_narrator)(card)
     if not persist:
         return card, False
     _, created = record_decision(session, card)
     return card, created
+
+
+def default_narrator(card: DecisionCard) -> DecisionCard:
+    """ARCHITECTURE.md §3.10's narration: Ollama when configured, the template otherwise."""
+    from loop.narrate.narrator import narrate_card
+
+    narrated, _ = narrate_card(card)
+    return narrated
 
 
 def evaluate_pending(

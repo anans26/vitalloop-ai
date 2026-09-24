@@ -3,6 +3,11 @@
 Flow, per `ARCHITECTURE.md` §3.6: validated payload -> feature pipeline ->
 champion model -> calibrated risk + top-3 SHAP factors, with one audit row per
 request. The audit write is fail-closed: see `api.audit`.
+
+Week 9 adds shadow scoring (§3.6, §3.13): when a `shadow` model is loaded, the
+same request is scored by it as a background task that runs after the
+response is sent. It is queued only once the champion's answer is final and
+audited, and nothing it produces is ever returned -- see `api.shadow`.
 """
 
 import time
@@ -10,7 +15,7 @@ import uuid
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from api.audit import (
@@ -26,6 +31,7 @@ from api.config import Settings, get_settings
 from api.logging_config import get_logger, request_log_fields
 from api.model_loader import ModelBundle
 from api.schemas import ErrorResponse, PredictionRequest, PredictionResponse, ShapContribution
+from api.shadow import ShadowBundle, score_in_shadow
 from db.session import session_scope
 
 router = APIRouter(tags=["prediction"])
@@ -41,6 +47,11 @@ def get_model_bundle(request: Request) -> ModelBundle:
             detail="Model is not loaded; the service is not ready.",
         )
     return bundle
+
+
+def get_shadow_bundle(request: Request) -> ShadowBundle | None:
+    """The shadow model, if one is loaded. Its absence is normal, not an error."""
+    return getattr(request.app.state, "shadow_bundle", None)
 
 
 def _top_contributions(bundle: ModelBundle, frame: pd.DataFrame, top_n: int) -> list[dict]:
@@ -79,8 +90,10 @@ def _top_contributions(bundle: ModelBundle, frame: pd.DataFrame, top_n: int) -> 
 )
 def predict(
     payload: PredictionRequest,
+    background_tasks: BackgroundTasks,
     principal: Principal = Depends(require_role(CLINICIAN_ROLE, OPS_ROLE)),
     bundle: ModelBundle = Depends(get_model_bundle),
+    shadow: ShadowBundle | None = Depends(get_shadow_bundle),
     settings: Settings = Depends(get_settings),
     session: Session = Depends(session_scope),
 ) -> PredictionResponse:
@@ -173,6 +186,18 @@ def predict(
             latency_ms=latency_ms,
         ),
     )
+
+    if shadow is not None:
+        # Queued, not run: Starlette executes it after the response is sent.
+        background_tasks.add_task(
+            score_in_shadow,
+            shadow,
+            features,
+            request_id=request_id,
+            champion_version=bundle.model_version,
+            champion_score=risk_score,
+            threshold=settings.decision_threshold,
+        )
 
     return PredictionResponse(
         request_id=request_id,

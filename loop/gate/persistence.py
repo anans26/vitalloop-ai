@@ -21,11 +21,11 @@ needs, and what a second attempt after a BLOCK would legitimately be.
 
 import hashlib
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from db.models import Approval, RetrainRun
 from db.models import DecisionCard as DecisionCardRow
-from db.models import RetrainRun
 from loop.engine.rules import AUTO_PROCEED_SHADOW, RETRAIN_ACTIONS
 from loop.gate.gate import GateResult
 
@@ -142,6 +142,7 @@ def cards_awaiting_retrain(
     scenario: str | None = None,
     policy_version: str | None = None,
     automated_only: bool = True,
+    include_approved: bool = False,
     limit: int | None = None,
 ) -> tuple[DecisionCardRow, ...]:
     """Cards that call for a retrain and have no run recorded yet, oldest first.
@@ -149,8 +150,11 @@ def cards_awaiting_retrain(
     `automated_only` is the default because WORKFLOW.md §4 is explicit about
     the other path: "Ambiguous evidence (confidence < 0.75) | Disposition =
     `ESCALATE_HUMAN`; nothing retrains until an ops user acts." An escalated
-    card is therefore never picked up by a backlog sweep; it is retrained only
-    when a caller names it and supplies the authorisation to record.
+    card is therefore never picked up by a backlog sweep on its own; it is
+    retrained when a caller names it and supplies the authorisation to record,
+    or -- Week 9 -- when `include_approved` is set and an ops user has recorded
+    an `APPROVE` decision for it in `approvals`. The person acting is the
+    approval row; the sweep only notices it.
     """
     decided = select(RetrainRun.card_id)
     statement = (
@@ -159,7 +163,16 @@ def cards_awaiting_retrain(
         .where(DecisionCardRow.card_id.not_in(decided))
     )
     if automated_only:
-        statement = statement.where(DecisionCardRow.disposition == AUTO_PROCEED_SHADOW)
+        automated = DecisionCardRow.disposition == AUTO_PROCEED_SHADOW
+        if include_approved:
+            approved = (
+                select(Approval.subject)
+                .where(Approval.kind == "RETRAIN")
+                .where(Approval.decision == "APPROVE")
+            )
+            statement = statement.where(or_(automated, DecisionCardRow.card_id.in_(approved)))
+        else:
+            statement = statement.where(automated)
     if scenario is not None:
         statement = statement.where(DecisionCardRow.scenario == scenario)
     if policy_version is not None:

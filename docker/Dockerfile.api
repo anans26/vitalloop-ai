@@ -25,6 +25,11 @@ RUN pip install --upgrade pip \
 COPY api/ ./api/
 COPY db/ ./db/
 COPY ml/ ./ml/
+# Week 9: the ops endpoints run the approval flow (`loop/approval/`), read the
+# shadow window (`loop/shadow/`) and render narratives (`loop/narrate/`), and
+# check decisions against the versioned promotion rules in configs/.
+COPY loop/ ./loop/
+COPY configs/ ./configs/
 COPY scripts/ ./scripts/
 COPY dvc.lock ./dvc.lock
 

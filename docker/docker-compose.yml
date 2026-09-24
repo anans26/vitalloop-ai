@@ -32,6 +32,7 @@ services:
       --backend-store-uri sqlite:////mlflow/mlflow.db
       --artifacts-destination /mlflow/artifacts
       --serve-artifacts
+      --allowed-hosts mlflow,mlflow:5000,localhost,localhost:5000,127.0.0.1,127.0.0.1:5000
     ports:
       - "5000:5000"
     volumes:
@@ -59,12 +60,22 @@ services:
       VITALLOOP_MLFLOW_TRACKING_URI: http://mlflow:5000
       VITALLOOP_REGISTERED_MODEL_NAME: ${VITALLOOP_REGISTERED_MODEL_NAME:-vitalloop-readmission}
       VITALLOOP_MODEL_ALIAS: ${VITALLOOP_MODEL_ALIAS:-champion}
+      # Week 9: score every request with the `shadow` model too, after the
+      # response, whenever that alias is set.
+      VITALLOOP_SHADOW_ENABLED: ${VITALLOOP_SHADOW_ENABLED:-true}
       POSTGRES_HOST: postgres
       POSTGRES_USER: ${POSTGRES_USER:-vitalloop}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in docker/.env}
       POSTGRES_DB: ${POSTGRES_DB:-vitalloop}
     ports:
       - "8000:8000"
+    # Week 9: a promotion moves `champion` from inside this container, and
+    # ml/registry.py appends every alias move to mlflow/registry_audit.jsonl.
+    # Mounting the host directory keeps one audit trail for moves made by the
+    # API and by the host-side gate runner, instead of losing the API's rows
+    # with the container.
+    volumes:
+      - ../mlflow:/app/mlflow
     # Wait for readiness, not merely for the containers to exist.
     depends_on:
       postgres:
@@ -92,6 +103,12 @@ services:
       # Week 7: the same worker decides each window it measures
       # (ARCHITECTURE.md §5 -- "drift job + decision engine").
       VITALLOOP_POLICY_VERSION: ${VITALLOOP_POLICY_VERSION:-policy-v2}
+      # Week 9: each card is narrated before it is stored. "template" is the
+      # default and needs nothing; "ollama" asks the optional `ollama` service
+      # below and falls back to the template if it is down or ungrounded.
+      VITALLOOP_NARRATION_BACKEND: ${VITALLOOP_NARRATION_BACKEND:-template}
+      VITALLOOP_OLLAMA_URL: ${VITALLOOP_OLLAMA_URL:-http://ollama:11434}
+      VITALLOOP_OLLAMA_MODEL: ${VITALLOOP_OLLAMA_MODEL:-llama3.1:8b}
       # "local" reads the DVC-tracked artifact mounted below; set "mlflow" to
       # score with the registered champion instead.
       VITALLOOP_MODEL_SOURCE: ${VITALLOOP_MONITOR_MODEL_SOURCE:-local}
@@ -110,6 +127,23 @@ services:
       postgres:
         condition: service_healthy
 
+  # Week 9: the narration LLM (ARCHITECTURE.md §3.10, §5 "ollama is an
+  # optional profile"). Not started by a plain `docker compose up`:
+  #
+  #   docker compose --profile ollama up -d
+  #   docker compose exec ollama ollama pull llama3.1:8b
+  #
+  # and set VITALLOOP_NARRATION_BACKEND=ollama for the monitor. Nothing depends
+  # on it -- the template narrates every card whether or not it is running.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+
 volumes:
   pgdata:
   mlflow-data:
+  ollama-models:

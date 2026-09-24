@@ -72,7 +72,7 @@ Only technologies **actually present in the repository today** are listed. Every
 | **Internet access (one-time)** | Downloading the UCI dataset via `ucimlrepo` | Not needed again once `datasets/raw/diabetic_data.csv` exists locally and/or is pulled from the DVC remote |
 | **IDE** | Any | VS Code with the Python extension is a reasonable default; no project-specific extensions are required yet |
 
-**Not required yet:** Node.js (unless rebuilding the planning-doc PDF), any Google Cloud account, any Gemini API key, any GPU. See §7 for why.
+**Not required:** Node.js (unless rebuilding the planning-doc PDF), any cloud account, any LLM API key, any GPU. **Optional:** [Ollama](https://ollama.com) with `llama3.1:8b` pulled, only if you want LLM narration instead of the default template (§7, §17.6).
 
 ---
 
@@ -173,23 +173,45 @@ Only the PostgreSQL container's credentials exist as environment variables today
 
 ---
 
-## 7. API Configuration — Gemini Only
+## 7. LLM Configuration — Ollama Only (decided in Week 9)
 
-**Mandatory project constraint:** this project uses **only** Google's Gemini API, specifically:
+**Decision:** the narration layer's only LLM is **Ollama**, self-hosted, running
+Llama 3.1 8B (`llama3.1:8b`), exactly as `project_docs/ARCHITECTURE.md` §3.10
+and `TECH_STACK.md` specify. There is no cloud or paid LLM anywhere in the
+repository — no Gemini client, no API key, no SDK dependency.
 
-```
-model = "gemini-2.5-flash"
-```
+**The discrepancy this resolves.** Until Week 9 this section recorded a
+"mandatory" constraint that any LLM be Google Gemini (`gemini-2.5-flash`). That
+contradicted the architecture documents, which call for a self-hosted, offline
+model precisely so that nothing — not even the Decision Card's aggregate
+metadata — leaves the machine, and so the demo runs with no network. The
+conflict was flagged in Week 2 and deliberately left open. Before Week 9 shipped,
+the project owner decided it: **Ollama only**, because the project must be
+**free and self-hosted/offline**, with no paid or cloud LLM dependency. (A
+Gemini backend was briefly drafted beside Ollama while the decision was pending;
+it was removed before commit and never shipped.)
 
-**Current state as of Week 2: no AI/LLM API integration exists anywhere in the codebase.** There is no narration layer, no Ollama client, no Gemini client, and no API key handling of any kind yet. The LLM narration layer is Week 9 work per `project_docs/IMPLEMENTATION_ROADMAP.md`.
+**What that means in practice:**
 
-**Explicit exclusions (already true, and to remain true for the life of the project):**
-- ❌ No Claude API calls
-- ❌ No Anthropic SDK
-- ❌ No Claude API keys, anywhere, including in examples or comments
-- ❌ No Claude/Anthropic package dependencies in `requirements.txt`
+| Setting | Values | Default |
+|---|---|---|
+| `VITALLOOP_NARRATION_BACKEND` | `template` or `ollama` | `template` |
+| `VITALLOOP_OLLAMA_URL` | Ollama base URL | `http://localhost:11434` (`http://ollama:11434` in Compose) |
+| `VITALLOOP_OLLAMA_MODEL` | an Ollama model tag | `llama3.1:8b` |
+| `VITALLOOP_OLLAMA_TIMEOUT_SECONDS` | seconds | `60` |
 
-**⚠️ Documented conflict to resolve before Week 9:** `project_docs/ARCHITECTURE.md` (§3.10) and `project_docs/TECH_STACK.md` specify a **self-hosted, offline** LLM (Ollama running Llama 3.1 8B) for the narration layer specifically *because* the docs argue that a cloud API "sends metadata off-box and breaks the offline demo — wrong trade" for a PHI-adjacent system. The mandatory Gemini-only constraint requires a **cloud** API instead. This is a genuine, unresolved conflict between the project's own architecture documents and the AI-model mandate — it does not block anything through Week 2 (no LLM code exists yet), but it must be explicitly decided (and the offline/PHI-safety trade-off re-documented) before Week 9 implementation begins. It is not silently resolved in this document.
+- The **Jinja2 template is the default** narrator and the **mandatory
+  fallback**: if Ollama is off, unreachable, has no model pulled, or writes a
+  narrative that fails the grounding check, the template narrates instead. The
+  system is complete without any LLM.
+- The LLM's **only input is the Decision Card** — aggregate statistics and
+  metadata, minus its own narrative fields (`loop/narrate/prompt.py`).
+- **CI never downloads a model.** Every LLM test runs against a mocked
+  transport; the template is the path CI exercises.
+- **Explicit exclusions** (unchanged): no Claude API calls, no Anthropic SDK,
+  no Claude/Anthropic keys or package dependencies.
+
+To switch Ollama on, see §17.6.
 
 ---
 
@@ -559,7 +581,7 @@ pytest -q tests/test_api_auth.py tests/test_api_predict.py          tests/test_a
 **How to verify the installation:**
 ```bash
 pytest -q
-# Expected: 867 passed
+# Expected: 1138 passed
 ruff check .
 # Expected: All checks passed!
 ruff format --check .
@@ -589,7 +611,7 @@ print('No patient leakage across splits: OK')
 
 **How to verify the UI:** not applicable — no UI exists yet.
 
-**How to verify AI integration:** not applicable — no AI/LLM integration exists yet (§7).
+**How to verify AI integration:** `pytest tests/narrate -q` exercises the grounding check, the template on every policy branch, and the Ollama client over a mocked transport — no model download needed. See §17.6 for a live Ollama run.
 
 **Expected successful state at Week 5:** `pytest` reports 164 passed (144 passed / 20 skipped if the datasets and model artifacts have not been built), `ruff check .` reports clean, `dvc repro` reports "up to date," and the three processed CSVs exist with disjoint `patient_nbr` sets summing to 69,990 rows.
 
@@ -604,24 +626,26 @@ print('No patient leakage across splits: OK')
 | `jupyter execute` fails with `UnicodeDecodeError: 'charmap' codec can't decode byte ...` | On Windows, `nbformat` opens notebook files using the system codepage (cp1252) by default, which cannot decode UTF-8 characters like em dashes | Set `PYTHONUTF8=1` in the environment before running: `PYTHONUTF8=1 python -m jupyter execute --inplace notebooks/01_eda.ipynb` | Command completes without a traceback |
 | `dvc add`/`git add` reports a `.dvc` file is git-ignored | A broad `.gitignore` pattern (e.g. `datasets/raw/*`) also matches DVC's own `.dvc` pointer files | Add explicit negation rules (`!datasets/raw/*.dvc`) to `.gitignore` | `git status` shows the `.dvc` file as trackable, not ignored |
 | `ml.data.ingest` output is missing `patient_nbr`/`encounter_id` | `ucimlrepo`'s `dataset.data.features` excludes ID columns by design; they live in `dataset.data.ids` | Already fixed in `ml/data/ingest.py` (joins `dataset.data.ids` with `dataset.data.features`) — if you see this, you have an older copy of the file | `patient_nbr` and `encounter_id` are present in `datasets/raw/diabetic_data.csv` |
+| The `api` container logs `model_unavailable`; MLflow answers `403 Invalid Host header - possible DNS rebinding attack detected` | Newer MLflow server images reject `Host` headers outside localhost and private IPs, and inside Compose the API calls `mlflow:5000` | Already fixed: the `mlflow` service passes `--allowed-hosts` including `mlflow:5000`. Recreate an older container with `docker compose up -d mlflow` | `curl localhost:8000/ready` shows `"model_loaded": true` |
+| `python -m scripts.send_traffic` reports every request failed (422 on `diag_1`) | pandas reads numeric-looking ICD-9 codes (`428`) as floats | Already fixed: the script reads `diag_1..3` as text | `N scored, 0 failed` |
 | `LogisticRegression` convergence warning in the baseline notebook | Unscaled numeric features slow `lbfgs` convergence | Already fixed (a `StandardScaler` step was added to the baseline's numeric branch) — if you see this, check you're on the current notebook | Re-running the notebook produces no `ConvergenceWarning` |
 
 ---
 
 ## 12. Current Limitations
 
-(Scoped strictly to Week 8 — this is not a roadmap of what's missing overall, just what a developer running the project today should know.)
+(Scoped strictly to Week 9 — this is not a roadmap of what's missing overall, just what a developer running the project today should know.)
 
-- **No frontend.** The Streamlit dashboard is Week 10; the API's OpenAPI page at `/docs` is the only interactive surface.
-- **No governed promotion, and no shadow scoring.** The gate moves the `shadow` alias on a PASS, but nothing *scores* with it: shadow dual-scoring is Week 9 middleware, and human approval — the only thing that may move `champion` — is Week 9 too. `champion` still means "the first registered version", not "a model that passed a gate".
+- **No frontend.** The Streamlit dashboard is Week 10. The approval "click" §3.13 describes is, for now, a call to the `/ops` endpoints (OpenAPI page at `/docs`); Week 10's Approvals page will call the same endpoints.
 - **Serving latency is above target.** A warm `/predict` takes roughly 350 ms against the roadmap's < 200 ms goal; per-request SHAP dominates. The roadmap's own mitigations (batching, a cached explainer path) are not implemented.
-- **No shadow deployment, no approval flow, no dashboard.** All Week 9+. A challenger that passes the gate reaches the `shadow` alias and stops there; nothing dual-scores with it and nothing promotes it.
-- **No benchmark card retrains unattended.** Every S1–S3 card escalates (confidence 0.39–0.67 against the 0.75 auto-proceed line), so the automated path is implemented and tested but is never the path the seeded benchmark takes; a retrain on this data needs `--authorized-by` (§16.3).
+- **No benchmark card retrains unattended.** Every S1–S3 card escalates (confidence 0.39–0.67 against the 0.75 auto-proceed line), so the automated path is implemented and tested but is never the path the seeded benchmark takes; a retrain on this data needs an ops user's `APPROVE` (§17.3).
+- **Shadow statistics are trivially perfect on this data.** A retrain runs the same seeded pipeline on the same pinned data, so every challenger so far is bit-identical to the champion and the live shadow windows report agreement 1.0 with zero score difference (§17.7). The statistics are tested on non-trivial pairs; the live stack has simply not produced a different model yet.
+- **Replay can re-register the serving champion.** Replay re-registers the cached challenger, which after a promotion *is* the champion. The gate PASSes it (it equals itself), but the API never shadows a model against itself, so the window cannot fill and promotion is refused — safe, but a wasted run. A live retrain produces a new version (§17.7).
 - **Policy rules 5 and 6 never fire on real data.** Rule 5 needs matured-label evidence that nothing produces yet. Rule 6 needs a retrain history the Decision Engine can read: `retrain_runs` now exists (Week 8), but wiring its rows back into `DriftEvidence` as a cooldown/budget input is not Week 8's deliverable and was not done. Both branches exist and are unit-tested against both shipped policies (§15.3).
 - **The S1–S5 benchmark exercises rules 1 and 4 only.** After the control calibration, no benchmark scenario lands in the mild band that rules 2 and 3 read (§15.6). Those rules, and 5 and 6, are covered by unit tests rather than by the five scenarios.
 - **No delayed-label performance monitoring.** ARCHITECTURE.md §3.7 lists AUROC/recall on a matured-label window alongside input and prediction drift. Week 6 implements the two leading indicators only; the matured-label arm (and scenario S4's detection, as opposed to its injection) needs the label-latency handling that Weeks 7–8 introduce.
 - **The S5 control is not perfectly silent at the measurement layer** — see §14.4. Two administrative features drift genuinely across the serving stream, which is a finding about the UCI extract, not a bug in the monitor. The monitor still records that drift at its own 0.10 threshold; `policy-v2` calibrates the *decision* threshold on the control, as the roadmap requires, so the control produces `NO_OP` on every window without any evidence being altered (§15.6).
-- **No LLM/Gemini integration exists yet**, and the offline-LLM-vs-Gemini-mandate conflict (§7) is unresolved.
+- **Ollama narration is optional and not exercised live on this machine.** The client, grounding check and fallback are tested with a mocked transport, and the fallback was verified live (Ollama running with no model pulled → 404 → template). A live `llama3.1:8b` narrative needs the ~4.9 GB model pulled (§17.6), which was not done here. The Gemini question is closed: Ollama only (§7).
 - **No shared remote history** — commits exist locally and `origin` is configured, but the Week 1–3 history has not been pushed.
 - **Single-machine, local-only setup.** DVC's remote is a local directory (`dvc-storage/`, gitignored) — there is no shared/team remote configured.
 - **Windows encoding caveat** (§11): non-ASCII characters in notebooks require `PYTHONUTF8=1` on this OS when using `jupyter execute` from a script; interactive Jupyter (browser) does not hit this issue.
@@ -630,9 +654,9 @@ print('No patient leakage across splits: OK')
 
 ## 13. Current Project Status
 
-**Completed (Week 1 + Week 2 + Week 3 + Week 4 + Week 5 + Week 6 + Week 7 + Week 8 exit criteria):**
+**Completed (Week 1 through Week 9 exit criteria):**
 - Repo scaffold, ruff + pre-commit + basic CI (lint + test) configuration
-- Docker Compose running PostgreSQL 16 (holding `predictions`, `drift_events`, `decision_cards` and `retrain_runs`)
+- Docker Compose running PostgreSQL 16 (holding `predictions`, `drift_events`, `decision_cards`, `retrain_runs`, `approvals` and `shadow_predictions`)
 - UCI Diabetes 130-US dataset downloaded and verified (101,766 × 50 columns)
 - `notebooks/01_eda.ipynb` — executed, documents missingness/imbalance/leakage findings with real output
 - Week 1 baseline logistic regression: AUROC 0.6191
@@ -653,9 +677,10 @@ print('No patient leakage across splits: OK')
 - `configs/policy-v1.yaml`, `configs/policy-v2.yaml` + `loop/engine/` — the deterministic Decision Engine: the versioned six-rule policy table, the decomposed confidence formula, the frozen Pydantic Decision Card, `decision_cards` persistence with idempotent re-evaluation, and the evaluator CLI
 - The control calibration the roadmap assigns to Week 6, applied as `policy-v2`: the S1–S5 benchmark now yields `FULL_RETRAIN` on S1–S3 in their first window and `NO_OP` on every control window (§15.6)
 - `configs/gate-v1.yaml` + `loop/gate/` + `ml/retrain.py` + `scripts/replay_retrain.py` — the Week 8 retrain-and-gate step: the DVC-pinned challenger run (live or replay), the versioned promotion criteria, the pure validation gate, `retrain_runs` persistence with idempotent re-gating, and the runner CLI
-- 867/867 pytest tests passing (99% branch coverage on the Decision Engine, 99% on `loop/gate/` and 100% on `ml/retrain.py`); `ruff check .` and `ruff format --check .` clean
+- Week 9: shadow scoring after the response (`api/shadow.py`, `loop/shadow/`, `shadow_predictions`); the ops-role approval flow for escalated retrains and for promotion (`loop/approval/`, `api/routers/ops.py`, `approvals`, `configs/promotion-v1.yaml`) — the only path that moves `champion`; grounded narration (`loop/narrate/`: Jinja2 default and fallback, optional self-hosted Ollama)
+- 1138/1138 pytest tests passing (Week 9: 97% branch coverage on `loop/approval/promotion.py`, 100% on `loop/approval/retrain.py`, `loop/shadow/stats.py`, `loop/narrate/narrator.py` and `ollama.py`) (99% branch coverage on the Decision Engine, 99% on `loop/gate/` and 100% on `ml/retrain.py`); `ruff check .` and `ruff format --check .` clean
 
-**In Progress:** nothing — Week 8 is a clean stopping point with no partially-built component.
+**In Progress:** nothing — Week 9 is a clean stopping point with no partially-built component.
 
 **Open question carried into Week 4:** the Week 3 model scores ~0.60 ROC-AUC,
 below the ~0.64–0.69 range `project_docs/DATASET_ANALYSIS.md` cites for this
@@ -669,7 +694,7 @@ identical conditions. Whether to restate the roadmap's "at or above published
 benchmarks" outcome in light of the stricter protocol is a decision for review,
 not something Week 3 resolved by tuning.
 
-**Remaining (Week 9 onward — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full list):** shadow dual-scoring + human approval + LLM narration, the Streamlit dashboard + audit PDF export, CI/CD hardening, and final reporting/viva prep.
+**Remaining (Week 10 onward — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full list):** the Streamlit dashboard + audit PDF export, CI/CD hardening, and final reporting/viva prep.
 
 ---
 
@@ -1341,7 +1366,7 @@ params, metrics and tags; it logs **no dataset artifact**, for the reason
 ### 16.11 What Week 8 deliberately does not do
 
 - **It does not promote.** No code path moves `champion`. Shadow scoring,
-  approval and promotion are Week 9.
+  approval and promotion are Week 9 (§17).
 - **It adds no infrastructure.** No new Compose service, no scheduler, no API
   endpoint — §5's topology gains nothing in Week 8, and the roadmap asks for
   none. The gate is a CLI and a library call.
@@ -1355,3 +1380,252 @@ params, metrics and tags; it logs **no dataset artifact**, for the reason
   roadmap asks for a *fixture* proving BLOCK, and that is what
   `tests/gate/conftest.py::InvertedChallenger` is — bad by construction rather
   than by seed. Wiring a bad challenger into the clickable demo is Week 10.
+
+
+---
+
+## 17. Week 9 — Shadow, Approval, Narration
+
+### 17.1 What it does
+
+Week 9 takes a gated challenger the rest of the way, and puts a person at the
+two points where the design says a person must act.
+
+`IMPLEMENTATION_ROADMAP.md`, Week 9: *"full lifecycle drift → … → shadow →
+human approval → promotion, every step persisted; narration works with and
+without Ollama."*
+
+| Module | Role |
+|---|---|
+| `api/shadow.py` | §3.6 shadow scoring: the `shadow` model scores each request **after** the response is sent |
+| `loop/shadow/stats.py` | §3.13 agreement and stability statistics, as a pure function over score pairs |
+| `loop/shadow/persistence.py` | `shadow_predictions` rows and the statistics for one champion/shadow pair |
+| `loop/approval/retrain.py` | an ops user authorises (or rejects) a retrain the policy escalated |
+| `loop/approval/promotion.py` | an ops user approves (or rejects) a gated challenger — **the only code that moves `champion`** |
+| `loop/approval/registry.py` | the alias operations a decision may perform, over `ml.registry` |
+| `configs/promotion-v1.yaml` | the promotion rules: shadow window size, minimum reason length |
+| `api/routers/ops.py` | the `ops`-role endpoints for all of the above |
+| `api/serving_state.py` | re-resolves champion and shadow in a running API after a decision |
+| `loop/narrate/` | narration: grounding check, Jinja2 template (default + fallback), optional Ollama |
+| `scripts/send_traffic.py` | replays serving-stream rows through `/predict` to fill a shadow window |
+
+Two tables join the schema. `approvals` is the fifth table of §4.6's ERD.
+`shadow_predictions` is not in the ERD: §3.6 says the shadow score is *logged*,
+and a score nobody is ever shown needs its own row rather than a column on the
+audit row the clinician's answer was built from. Both are created by `init_db`,
+like every table before them, and both are append-only.
+
+### 17.2 Running it
+
+```bash
+# the API (Compose) now also exposes /ops/*; an ops token:
+python -m scripts.issue_dev_token --subject ops-alice --role ops
+
+# fill a shadow window with real, audited requests
+python -m scripts.send_traffic --count 60
+
+# narrate a stored card (read-only); measure LLM faithfulness over every card
+python -m loop.narrate --card dc-2026-01-03-9bd13a7e
+python -m loop.narrate --all --backend ollama
+```
+
+| Endpoint (`ops` role) | Does |
+|---|---|
+| `GET /ops/retrains/pending` | escalated retrain cards nobody has decided |
+| `POST /ops/retrains/{card_id}/decision` | `APPROVE`/`REJECT` + reason → `approvals` row; trains nothing |
+| `GET /ops/promotions/pending` | gated challengers in shadow, each with its full evidence chain |
+| `GET /ops/promotions/{run_id}` | the evidence for one |
+| `POST /ops/promotions/{run_id}/decision` | `APPROVE` moves `champion`; `REJECT` moves nothing; both clear `shadow` |
+| `GET /ops/shadow` | what this instance serves, and the current window's statistics |
+| `POST /ops/models/reload` | re-resolve champion and shadow (after a gate PASS moved `shadow`) |
+| `GET /ops/cards/{card_id}/narrative` | the card's narrative and its grounding verdict |
+
+A clinician token gets `403` on every one of them. The approver is the token's
+subject; neither request body has an approver field, so nobody can record a
+decision in someone else's name.
+
+### 17.3 Authorising an escalated retrain
+
+Week 8 refused to retrain an `ESCALATE_HUMAN` card without a name to record,
+and said Week 9 would supply the name. It is an `approvals` row of kind
+`RETRAIN`:
+
+- `APPROVE` authorises. The decision **does not train** — a retrain takes
+  minutes and belongs to `python -m loop.gate.runner`, which now sweeps
+  approved escalated cards alongside automated ones and records the approver
+  as `authorized_by`. Every Week 8 check still applies.
+- `REJECT` closes the card, with its reason. The runner then refuses that card
+  **even if a caller passes `--authorized-by`**: a person reviewed the evidence
+  and said no, and a CLI flag must not quietly overrule them.
+- A person cannot turn an `ALERT_ONLY` card into a retrain, cannot authorise an
+  automated card (it already carries its own authority), and cannot decide the
+  same card twice.
+
+### 17.4 Shadow scoring
+
+`/predict` queues the shadow as a FastAPI background task, which Starlette runs
+only **after** the response has been sent. So the clinician's answer, its
+latency and its audit row are settled before the shadow runs, and nothing it
+does — slow, failing, broken model — can reach them. A shadow that fails is a
+row with status `shadow_failed`, not an error anyone sees.
+
+The shadow model is loaded **by version**, not by alias, so the version written
+on each row is always the model that scored it. The API never shadows a model
+against itself.
+
+§3.13's statistics, per `(champion, shadow)` pair: decision agreement at the
+serving threshold, flips in each direction, mean/p95/max absolute score
+difference, Spearman rank correlation, mean score of each model and the shift
+between them, and failed-score count.
+
+### 17.5 Promotion: what must be true, and what moves
+
+`ARCHITECTURE.md` §6: *"Alias change requires gate PASS + shadow window +
+logged human approval."* An `APPROVE` is refused (409, nothing moved, nothing
+written) unless **all** of these hold at the moment of the click:
+
+| Precondition | Why |
+|---|---|
+| `gate_pass` | the run PASSed and actually moved `shadow` |
+| `challenger_in_shadow` | `shadow` still points at this challenger — otherwise its window is about a model nobody is watching |
+| `champion_unchanged_since_gate` | `champion` is still the model the gate compared against — the verdict was "better than *that* model" |
+| `shadow_window_complete` | ≥ `min_shadow_requests` (50) requests dual-scored by exactly this pair |
+
+plus a reason of at least `min_reason_length` (10) characters —
+RISK_ANALYSIS.md §3's answer to rubber-stamping, for both outcomes. `REJECT`
+needs no evidence threshold: stopping a model reaching clinicians should never
+be blocked.
+
+`APPROVE` moves `champion` to the challenger (audited in the approver's name),
+clears `shadow`, and reloads the API's models so the new champion serves
+immediately. `REJECT` moves nothing but clears `shadow`, so a rejected model
+stops scoring. Each decision is final — `(kind, subject)` is unique.
+
+The alias moves before the row is written; if the row cannot be written, the
+champion alias is **moved back** before the error propagates. That ordering is
+the only one where no champion move can survive without its approval record.
+A test scans the source tree and asserts that `loop/approval/promotion.py` is
+the only code (besides Week 4's one-time initial registration) that sets
+`champion`.
+
+The row stores the evidence the person was shown — card summary and narrative,
+the gate's headline numbers champion-beside-challenger, the worst subgroup
+AUROC drop, the shadow statistics, the aliases, and each precondition's state.
+
+### 17.6 Narration
+
+`WORKFLOW.md` step 13: *"Emits the Decision Card; LLM narration attached
+afterwards."* The engine decides, then the narrator fills the card's
+`narrative` and `narrative_source` slots (frozen and null since Week 7), then
+the card is written — so the narrative can never influence the decision and
+the stored card is never edited. A test asserts that narration changes those
+two fields and nothing else.
+
+- **Template (default).** `loop/narrate/templates/decision_card-v1.j2`,
+  deterministic, labelled `template/decision_card-v1`. It is grounded on every
+  card the engine can emit: a test renders it for every rule branch under both
+  shipped policies and runs the grounding check on each.
+- **Grounding check** (`grounding.py`, pure). Every number the narrative quotes
+  must be a card value (rounding and percentages allowed), a list length, or a
+  number inside the card's own rationale; every ISO date must be one of the
+  card's dates. Digits inside identifiers (`policy-v2`, `S1`, card ids, hashes)
+  are not quantities. Numbers written as words are not checked.
+- **Ollama (optional, self-hosted).** The only LLM backend (§7). Its only input
+  is the card minus its narrative fields. `temperature` 0, fixed seed, but
+  nothing relies on that: an ungrounded answer or any failure falls back to the
+  template, and `python -m loop.narrate --all --backend ollama` reports the
+  faithfulness rate (RESEARCH_NOVELTY.md C2).
+
+To switch Ollama on:
+
+```bash
+# on the host
+ollama pull llama3.1:8b           # ~4.9 GB, once
+VITALLOOP_NARRATION_BACKEND=ollama python -m loop.engine.evaluate
+
+# or in Compose (the `ollama` profile is not started by default)
+docker compose --profile ollama up -d
+docker compose exec ollama ollama pull llama3.1:8b
+# set VITALLOOP_NARRATION_BACKEND=ollama in docker/.env, then restart `monitor`
+```
+
+Cards emitted before Week 9 keep their null narrative — they are immutable.
+`GET /ops/cards/{id}/narrative` and `python -m loop.narrate --card` render the
+template for them on demand, without writing anything.
+
+### 17.7 Verified on the live stack
+
+Against the running Compose Postgres, MLflow and API, on 2026-09-24:
+
+| Step | Result |
+|---|---|
+| `init_db` on the existing Week 8 database | `approvals` and `shadow_predictions` created |
+| API start with `shadow` → v2 | `model_loaded` v1, `shadow_loaded` v2 |
+| Clinician token on `/ops/shadow` | `403` |
+| `APPROVE` promotion of `rr-…894fe793` with an empty window | `409` — "0 of 50 requests dual-scored" |
+| `send_traffic --count 60` | 60 scored; 60 `shadow_predictions` rows; agreement 1.0, max diff 0.0 |
+| `APPROVE` again | `200`; champion 1 → 2, shadow cleared, `/ready` reports v2 without a restart |
+| 5 more requests | served by v2; no shadow rows |
+| The other Week 8 run (`rr-…f0018348`) | three preconditions unmet; `REJECT` recorded, nothing moved |
+| `APPROVE` retrain of escalated card `dc-2026-01-03-9bd13a7e` via the API | `approvals` row; a second click → `409` |
+| `loop.gate.runner --card … --mode replay` | PASS, `authorized_by=ops-verifier` read from the approval — but the replayed challenger was **v2, the serving champion** (§12); promotion correctly impossible, `REJECT`ed |
+| `loop.gate.runner --card … --mode live` | challenger **v3**, PASS, shadow → v3 (~84 s) |
+| reload, 55 requests, `APPROVE` | champion 2 → 3, `/ready` v3, new traffic served by v3 |
+| Alias audit | the API container's moves land in the host `mlflow/registry_audit.jsonl`, `actor` = the approver |
+| Narration of new cards | stored with `template/decision_card-v1`; grounded |
+| Ollama fallback | Ollama running with no model pulled → HTTP 404 → template, card unaffected |
+| PHI scan of every `approvals.evidence` and `shadow_predictions` row | no identifier, no feature value |
+
+The approvals trail after these steps, one query:
+
+```sql
+SELECT a.kind, a.decision, c.card_id, r.mode, r.challenger_version,
+       a.champion_version_before, a.champion_version_after, a.approver
+FROM approvals a JOIN decision_cards c ON c.card_id = a.card_id
+LEFT JOIN retrain_runs r ON r.run_id = a.run_id ORDER BY a.ts;
+```
+
+**Two infrastructure fixes were needed to get there**, both in §11: the MLflow
+image now rejects the `mlflow:5000` Host header unless `--allowed-hosts` names
+it (so the containerised API could not load any model), and the traffic script
+had to read ICD-9 codes as text.
+
+> **Note on the local database.** While verifying narration, `scenarios.run_scenario S1
+> --windows 4` was re-run against the live database. Week 6 gives every run fresh
+> event ids, so this appended **duplicates of S1 windows 0–2** (`de-s1-w000-2246816e`,
+> `de-s1-w001-5c878750`, `de-s1-w002-0eda1717`) plus a new window 3
+> (`de-s1-w003-701c835e`), and four policy-v2 cards over them
+> (`dc-2026-01-01-d42a3603`, `dc-2026-01-02-b649814a`, `dc-2026-01-03-9d894574`,
+> `dc-2026-01-04-368f4418`). Their persistence term counts the duplicate history
+> (7 "consecutive windows"), so these four cards are not part of the S1 benchmark.
+> The original Week 6/7 rows are untouched. That re-running a scenario appends
+> rather than no-ops is a Week 6 behaviour worth knowing before any demo.
+
+### 17.8 Privacy
+
+- A shadow row holds versions, two scores, the threshold, a status and a
+  latency — the payload is used in memory for one call and never stored.
+- An approval's evidence holds aggregates only: card statistics, metric sets,
+  shadow statistics, alias versions.
+- The LLM receives the Decision Card and nothing else, and runs on the same
+  machine; no card ever leaves it.
+- The approval reason is free text written by the ops user, stored verbatim —
+  it is the one field where a person *could* type something sensitive, so the
+  dashboard should say so when Week 10 builds the form.
+
+### 17.9 What Week 9 deliberately does not do
+
+- **No dashboard.** The Approvals page is Week 10; it will call these endpoints.
+- **No automatic promotion.** Nothing promotes without a person. Even the
+  automated (`AUTO_PROCEED_SHADOW`) path stops at shadow.
+- **No agreement threshold.** The shadow statistics are shown to the approver
+  and recorded; they do not auto-block. The documents give the judgement to the
+  person, and inventing a number here would take it away. A threshold would be
+  a new `promotion-v*` file.
+- **No change to Weeks 6–8 decisions.** No drift statistic, policy rule,
+  confidence term, gate criterion or card field changed. What Week 9 changed in
+  earlier code: `loop/engine/evaluate.py` narrates before persisting;
+  `loop/gate/runner.py` and `persistence.py` read `approvals`;
+  `ml/registry.py` gained `actor=` and `delete_alias`; `/predict` queues the
+  shadow; Compose gained the MLflow `--allowed-hosts` fix, the API's audit
+  mount and the optional `ollama` profile.

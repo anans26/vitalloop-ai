@@ -12,10 +12,25 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, inspect
 
-from db.models import Base, DecisionCard, DriftEvent, Prediction, RetrainRun
+from db.models import (
+    Approval,
+    Base,
+    DecisionCard,
+    DriftEvent,
+    Prediction,
+    RetrainRun,
+    ShadowPrediction,
+)
 from db.session import init_db
 
-EXPECTED_TABLES = {"predictions", "drift_events", "decision_cards", "retrain_runs"}
+EXPECTED_TABLES = {
+    "predictions",
+    "drift_events",
+    "decision_cards",
+    "retrain_runs",
+    "approvals",
+    "shadow_predictions",
+}
 
 
 @pytest.fixture
@@ -41,6 +56,8 @@ def test_every_model_is_registered_in_the_shared_metadata():
     assert Prediction.__table__.metadata is Base.metadata
     assert DecisionCard.__table__.metadata is Base.metadata
     assert RetrainRun.__table__.metadata is Base.metadata
+    assert Approval.__table__.metadata is Base.metadata
+    assert ShadowPrediction.__table__.metadata is Base.metadata
     assert EXPECTED_TABLES <= set(Base.metadata.tables)
 
 
@@ -183,3 +200,43 @@ def test_retrain_runs_reference_the_card_that_authorised_them(fresh_engine):
         key["referred_table"] == "decision_cards" and key["constrained_columns"] == ["card_id"]
         for key in keys
     )
+
+
+# ---------------------------------------------------------------------------
+# Week 9: approvals and shadow_predictions
+# ---------------------------------------------------------------------------
+def test_init_db_creates_the_approvals_columns(fresh_engine):
+    init_db(fresh_engine)
+    columns = {c["name"] for c in inspect(fresh_engine).get_columns("approvals")}
+    assert columns == set(Approval.__table__.columns.keys())
+    # ARCHITECTURE.md §4.6's ERD, verbatim.
+    assert {"id", "card_id", "approver", "decision", "ts"} <= columns
+
+
+def test_approvals_are_unique_per_kind_and_subject(fresh_engine):
+    """A decision is final: one row per thing that can be decided."""
+    init_db(fresh_engine)
+    constraints = inspect(fresh_engine).get_unique_constraints("approvals")
+    assert any(sorted(c["column_names"]) == ["kind", "subject"] for c in constraints)
+
+
+def test_approvals_reference_cards_and_runs(fresh_engine):
+    """§4.6: DECISION_CARDS ||--o{ APPROVALS -- and a promotion names its run."""
+    init_db(fresh_engine)
+    targets = {fk["referred_table"] for fk in inspect(fresh_engine).get_foreign_keys("approvals")}
+    assert targets == {"decision_cards", "retrain_runs"}
+
+
+def test_init_db_creates_the_shadow_predictions_columns(fresh_engine):
+    init_db(fresh_engine)
+    columns = {c["name"] for c in inspect(fresh_engine).get_columns("shadow_predictions")}
+    assert columns == set(ShadowPrediction.__table__.columns.keys())
+    assert {"request_id", "champion_version", "shadow_version", "shadow_score"} <= columns
+
+
+def test_shadow_predictions_store_no_payload(fresh_engine):
+    """Scores and versions only: nothing that could hold a feature value."""
+    init_db(fresh_engine)
+    columns = {c["name"] for c in inspect(fresh_engine).get_columns("shadow_predictions")}
+    for forbidden in ("payload", "features", "input", "top_shap", "patient_nbr", "encounter_id"):
+        assert forbidden not in columns

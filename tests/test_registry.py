@@ -12,6 +12,7 @@ from mlflow.tracking import MlflowClient
 
 from ml.registry import (
     current_alias_version,
+    delete_alias,
     ensure_initial_champion,
     read_audit_rows,
     set_alias,
@@ -135,3 +136,73 @@ def test_ensure_initial_champion_sets_champion_once(client, registered_version, 
     assert second is None
     assert current_alias_version(client, MODEL_NAME, "champion") == registered_version
     assert len(read_audit_rows(audit_path)) == 1
+
+
+# ---------------------------------------------------------------------------
+# Week 9: who moved it, and removing an alias
+# ---------------------------------------------------------------------------
+def _set(client, version, audit_path, **kwargs):
+    return set_alias(
+        client,
+        model_name=MODEL_NAME,
+        alias="shadow",
+        version=version,
+        run_id="run-1",
+        reason="unit test",
+        audit_path=audit_path,
+        **kwargs,
+    )
+
+
+def test_set_alias_records_a_named_actor(client, registered_version, audit_path):
+    """A promotion is made in the approver's name, not the API process's OS user."""
+    row = _set(client, registered_version, audit_path, actor="ops-alice")
+    assert row["actor"] == "ops-alice"
+
+
+def test_delete_alias_removes_it_and_records_the_removal(client, registered_version, audit_path):
+    _set(client, registered_version, audit_path)
+
+    row = delete_alias(
+        client,
+        model_name=MODEL_NAME,
+        alias="shadow",
+        run_id="run-1",
+        reason="promotion rejected",
+        audit_path=audit_path,
+        actor="ops-alice",
+    )
+
+    assert current_alias_version(client, MODEL_NAME, "shadow") is None
+    assert row["action"] == "delete_alias"
+    assert row["from_version"] == registered_version
+    assert row["to_version"] is None
+    assert row["actor"] == "ops-alice"
+    assert [r["action"] for r in read_audit_rows(audit_path)] == ["set_alias", "delete_alias"]
+
+
+def test_deleting_an_unset_alias_records_nothing(client, registered_version, audit_path):
+    assert (
+        delete_alias(
+            client,
+            model_name=MODEL_NAME,
+            alias="shadow",
+            run_id="run-1",
+            reason="nothing to do",
+            audit_path=audit_path,
+        )
+        is None
+    )
+    assert read_audit_rows(audit_path) == []
+
+
+def test_delete_alias_rejects_an_unknown_alias(client, audit_path):
+    with pytest.raises(ValueError, match="unknown alias"):
+        delete_alias(
+            client,
+            model_name=MODEL_NAME,
+            alias="production",
+            run_id="run-1",
+            reason="should not happen",
+            audit_path=audit_path,
+        )

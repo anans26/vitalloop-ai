@@ -1,0 +1,60 @@
+{#-
+  The deterministic narrative for one Decision Card (ARCHITECTURE.md §3.10).
+
+  Every figure below is read off the card and formatted by `num`, which only
+  rounds -- so the template's own output passes the grounding check it is the
+  fallback for, and a test asserts that for every rule branch.
+
+  Blank lines separate paragraphs; whitespace inside a paragraph is collapsed
+  after rendering, so the layout here is for the reader of this file.
+-#}
+Decision {{ card.card_id }} under {{ card.policy_version }}, rule {{ card.rule_id }}: {{ headline }}.
+
+In the {{ trigger.scenario }} window from {{ window_start }} to {{ window_end }},
+{% if breaches %}
+  {{ breaches | length }} of {{ trigger.monitored_feature_count }} monitored features breached
+  ({% for breach in breaches %}{{ breach.feature }} at PSI {{ breach.psi | num }}{{ ", " if not loop.last }}{% endfor %}).
+{% else %}
+  no monitored feature crossed the policy's breach threshold of PSI {{ thresholds.psi_breach | num }}.
+{% endif %}
+{% if trigger.prediction_drift %}
+  The distribution of predicted risk shifted as well{% if trigger.prediction_psi is not none %} (prediction PSI {{ trigger.prediction_psi | num }}){% endif %}.
+{% else %}
+  The distribution of predicted risk did not shift{% if trigger.prediction_psi is not none %} (prediction PSI {{ trigger.prediction_psi | num }}){% endif %}.
+{% endif %}
+{% if trigger.consecutive_breaching_windows > 1 %}
+  The breach has now lasted {{ trigger.consecutive_breaching_windows }} consecutive windows.
+{% endif %}
+{% if trigger.label_maturity == "matured_labels" and trigger.matured_auroc_drop is not none %}
+  Matured 30-day labels show the model's AUROC has dropped by {{ trigger.matured_auroc_drop | num }} since launch, so this is confirmed performance evidence, not only a shift in inputs.
+{% elif breaches or trigger.prediction_drift %}
+  The 30-day readmission labels for this window have not matured yet, so this is leading-indicator evidence only: the inputs moved, but no drop in accuracy has been measured.
+{% else %}
+  The 30-day readmission labels for this window have not matured yet, so the model's accuracy on it has not been measured against outcomes.
+{% endif %}
+
+{{ card.rationale }}
+The confidence terms are severity {{ breakdown.severity | num }}, breadth {{ breakdown.breadth | num }}, persistence {{ breakdown.persistence | num }} and evidence {{ breakdown.evidence | num }}, giving {{ card.confidence | num }};
+the policy lets the system act on its own only at {{ thresholds.auto_proceed_confidence | num }} or above.
+
+{% if card.action == "NO_OP" %}
+  Nothing happens. The window is still recorded, because a quiet window is a decision too and has to be auditable.
+{% elif card.action == "ALERT_ONLY" and card.downgraded_from %}
+  The policy would have chosen {{ card.downgraded_from }}, but it was held back to an alert, and the decision goes to an ops user instead of retraining again.
+{% elif card.action == "ALERT_ONLY" %}
+  An alert is raised and nothing retrains. The policy waits to see whether the shift persists before spending a retrain on it.
+{% else %}
+  {% if card.disposition == "AUTO_PROCEED_SHADOW" %}
+    The system will retrain a challenger on its own authority, on the pinned data version {{ card.candidate_data_version or "recorded on the card" }}.
+  {% else %}
+    The evidence is not strong enough for the system to act alone, so nothing retrains until an ops user authorises it. If authorised, the challenger trains on the pinned data version {{ card.candidate_data_version or "recorded on the card" }}.
+  {% endif %}
+  {% if criteria %}
+    To pass the validation gate it must keep AUROC within {{ criteria.auroc_non_inferiority_margin | num }} of the current model,
+    keep its top-decile recall at or above {{ criteria.recall_top_decile_min_ratio | num }}× the current model's,
+    raise the Brier score by no more than {{ criteria.max_brier_increase | num }},
+    keep calibration error at or below {{ criteria.max_ece | num }},
+    and lose no more than {{ criteria.max_subgroup_auroc_drop | num }} AUROC in any age, gender or race subgroup.
+  {% endif %}
+  Even then it only scores traffic in shadow: clinicians keep seeing the current model's scores until a person approves the promotion.
+{% endif %}

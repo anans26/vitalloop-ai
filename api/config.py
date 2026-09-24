@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     decision_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
     top_shap_features: int = Field(default=3, ge=1, le=20)
 
+    # --- Shadow scoring (Week 9) -------------------------------------------
+    # When a `shadow` alias exists in the registry, score every request with it
+    # too, after the response (ARCHITECTURE.md §3.6). Only meaningful with
+    # model_source="mlflow"; the local artifact has no registry to shadow from.
+    shadow_enabled: bool = True
+
     # --- Database ---------------------------------------------------------
     # Set VITALLOOP_DATABASE_URL directly, or leave it unset and let the
     # POSTGRES_* variables compose it.

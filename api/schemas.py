@@ -137,3 +137,40 @@ class ErrorResponse(BaseModel):
 
     detail: str = Field(description="Human-readable message. Never a traceback.")
     request_id: str | None = Field(default=None, description="Present when a request was audited.")
+
+
+# ---------------------------------------------------------------------------
+# Week 9 -- ops decisions
+# ---------------------------------------------------------------------------
+class DecisionRequest(BaseModel):
+    """A person's decision. Who made it comes from the token, never from here."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["APPROVE", "REJECT"] = Field(description="APPROVE or REJECT.")
+    reason: str = Field(
+        min_length=1,
+        max_length=1000,
+        description="Why, in words. Required for both outcomes; recorded verbatim.",
+    )
+
+
+class ApprovalResponse(BaseModel):
+    """The approval row as written, plus what it moved."""
+
+    approval_id: str
+    kind: Literal["RETRAIN", "PROMOTION"]
+    card_id: str
+    run_id: str | None = None
+    decision: Literal["APPROVE", "REJECT"]
+    approver: str
+    reason: str
+    rules_version: str | None = None
+    challenger_version: str | None = None
+    champion_version_before: str | None = None
+    champion_version_after: str | None = None
+    champion_alias_moved: bool = False
+    shadow_alias_cleared: bool = False
+    serving: dict | None = Field(
+        default=None, description="Models this API instance serves after the decision."
+    )

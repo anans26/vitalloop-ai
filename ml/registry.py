@@ -9,7 +9,8 @@ Week 4 scope is registration plus the initial `champion` alias on version 1,
 which is the roadmap's stated deliverable. It deliberately does **not** promote
 later versions: moving a champion is a governed act that Week 8's validation
 gate and Week 9's human approval exist to authorise, and inventing that policy
-here would pre-empt them.
+here would pre-empt them. `loop/approval/promotion.py` is where that policy
+lives; it calls `set_alias` here like every other caller.
 
 The audit rows land in JSONL because the Postgres schema that will hold them
 arrives in Week 5; the record shape is chosen to migrate cleanly into a table.
@@ -98,8 +99,14 @@ def set_alias(
     reason: str,
     git_commit: str | None = None,
     audit_path=None,
+    actor: str | None = None,
 ) -> dict:
-    """Moves an alias and records the move. The only sanctioned way to do either."""
+    """Moves an alias and records the move. The only sanctioned way to do either.
+
+    `actor` names who moved it. A promotion passes the approver from the
+    verified token, because the OS user of an API process says nothing about
+    which person clicked; every other move records the process's own user.
+    """
     if alias not in MODEL_ALIASES:
         raise ValueError(f"unknown alias {alias!r}; expected one of {MODEL_ALIASES}")
 
@@ -116,7 +123,47 @@ def set_alias(
             "run_id": run_id,
             "git_commit": git_commit,
             "reason": reason,
-            "actor": _actor(),
+            "actor": actor or _actor(),
+        },
+        audit_path=audit_path,
+    )
+
+
+def delete_alias(
+    client: MlflowClient,
+    model_name: str,
+    alias: str,
+    run_id: str,
+    reason: str,
+    audit_path=None,
+    actor: str | None = None,
+) -> dict | None:
+    """Removes an alias and records the removal. Returns None if it was unset.
+
+    Week 9 needs this for `shadow` only: a promoted challenger no longer needs
+    dual-scoring against itself, and a rejected one must stop being scored.
+    Removing an alias is a state change like any other, so it is audited like
+    any other -- `to_version` is null.
+    """
+    if alias not in MODEL_ALIASES:
+        raise ValueError(f"unknown alias {alias!r}; expected one of {MODEL_ALIASES}")
+
+    previous_version = current_alias_version(client, model_name, alias)
+    if previous_version is None:
+        return None
+    client.delete_registered_model_alias(model_name, alias)
+
+    return write_audit_row(
+        {
+            "action": "delete_alias",
+            "model_name": model_name,
+            "alias": alias,
+            "from_version": previous_version,
+            "to_version": None,
+            "run_id": run_id,
+            "git_commit": None,
+            "reason": reason,
+            "actor": actor or _actor(),
         },
         audit_path=audit_path,
     )

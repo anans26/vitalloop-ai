@@ -1,18 +1,23 @@
 """SQLAlchemy models for the audit tables.
 
-Four of the five tables in `project_docs/ARCHITECTURE.md` §4.6 exist here:
+All five tables in `project_docs/ARCHITECTURE.md` §4.6 exist here:
 `predictions` (Week 5, the per-request audit row), `drift_events` (Week 6, one
 monitoring window's measurement), `decision_cards` (Week 7, what the policy
-made of that measurement) and `retrain_runs` (Week 8, the challenger that
-decision produced and the gate's verdict on it). The remaining one
-(`approvals`) belongs to Week 9 and is deliberately absent.
+made of that measurement), `retrain_runs` (Week 8, the challenger that
+decision produced and the gate's verdict on it) and `approvals` (Week 9, the
+human decision that lets an escalated card retrain or a gated challenger become
+champion). Week 9 adds one table the ERD does not draw, `shadow_predictions`:
+§3.6 says the shadow model's score is logged, and a score that is never
+returned to anyone needs a row of its own rather than a column on the audit
+row the clinician's response was built from.
 
-`drift_events -> decision_cards -> retrain_runs` is the relational lineage §4.6
-calls "the audit trail": a card names the window that triggered it and a
-retrain run names the card that authorised it, so the evidence behind any
-challenger is two joins away.
+`drift_events -> decision_cards -> retrain_runs -> approvals` is the relational
+lineage §4.6 calls "the audit trail": a card names the window that triggered it,
+a retrain run names the card that authorised it, and an approval names the run
+whose challenger a person promoted, so the evidence behind any champion is
+three joins away.
 
-All four tables are **append-only in application code**: nothing in this
+All six tables are **append-only in application code**: nothing in this
 repository issues UPDATE or DELETE against any of them, which is how §4.6's
 immutability claim is kept without database-level machinery. The status
 transitions §3.12 describes are appended as `retrain_runs` rows rather than
@@ -320,3 +325,132 @@ class RetrainRun(Base):
 
 Index("ix_retrain_runs_outcome_created", RetrainRun.outcome, RetrainRun.created_at)
 Index("ix_retrain_runs_card_created", RetrainRun.card_id, RetrainRun.created_at)
+
+
+class ShadowPrediction(Base):
+    """One request scored a second time, by the `shadow` model, after the response.
+
+    ARCHITECTURE.md §3.6: "when a `shadow` alias exists, middleware also scores
+    the request with the shadow model and logs it. The response *only ever*
+    contains the champion score." This is that log. It is written after the
+    clinician already has the champion's answer, so nothing here can reach a
+    response, and a shadow failure is a row with a status rather than an error
+    anyone sees.
+
+    `request_id` ties the row to its `predictions` audit row, which already
+    holds the input hash, the caller and the champion's lineage -- so this row
+    carries only what is new: which shadow version scored, what it said, and
+    the champion score it is compared with. No payload, no feature value, no
+    SHAP.
+
+    §3.13's agreement and stability statistics are computed over these rows,
+    grouped by the `(champion_version, shadow_version)` pair, so a window that
+    straddles a promotion never mixes two comparisons.
+
+    Append-only in application code, like every table above.
+    """
+
+    __tablename__ = "shadow_predictions"
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
+    ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now(), index=True
+    )
+
+    model_name: Mapped[str] = mapped_column(String(255))
+    champion_version: Mapped[str] = mapped_column(String(64), index=True)
+    shadow_version: Mapped[str] = mapped_column(String(64), index=True)
+
+    champion_score: Mapped[float] = mapped_column(Float)
+    shadow_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    decision_threshold: Mapped[float] = mapped_column(Float)
+
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    error_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+Index(
+    "ix_shadow_predictions_pair_ts",
+    ShadowPrediction.champion_version,
+    ShadowPrediction.shadow_version,
+    ShadowPrediction.ts,
+)
+
+
+class Approval(Base):
+    """One human decision, final, with the evidence the person was shown.
+
+    The fifth table of §4.6. Columns follow that ERD (`id`, `card_id`,
+    `approver`, `decision`, `ts`); the rest are what makes the row answer "who
+    let this model reach clinicians, on what evidence" without reconstructing
+    the screen they saw.
+
+    Two decisions a person makes, one table, told apart by `kind`:
+
+    * `RETRAIN` -- a card the policy escalated (WORKFLOW.md §4: "nothing
+      retrains until an ops user acts"). An `APPROVE` here is the
+      `authorized_by` name Week 8's runner records on the retrain.
+    * `PROMOTION` -- a gated challenger in shadow (§3.13: "Promotion to
+      `champion` requires a human click ... which writes an approval row (who,
+      when, card reference)"). An `APPROVE` here is the only thing in the
+      repository that moves `champion`.
+
+    `subject` is what the decision is about -- the card for a retrain, the
+    retrain run for a promotion -- and `(kind, subject)` is unique, so each is
+    decided once. A person who changes their mind does so about a new
+    challenger, not by overwriting what they said about the old one.
+
+    `evidence` is a snapshot of what the decision was made on: the gate's
+    outcome and headline numbers, the shadow window's agreement statistics,
+    the aliases at that moment. RISK_ANALYSIS.md §3 names rubber-stamping as a
+    risk and answers it with "the full evidence chain ... not a bare 'Approve'
+    button"; recording that chain on the row is what lets a later reviewer
+    check the button was not bare.
+
+    Append-only in application code, like every table above.
+    """
+
+    __tablename__ = "approvals"
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    approval_id: Mapped[str] = mapped_column(String(96), unique=True, index=True)
+    ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=func.now(), index=True
+    )
+
+    # §4.6: DECISION_CARDS ||--o{ APPROVALS.
+    card_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("decision_cards.card_id"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(16), index=True)
+    subject: Mapped[str] = mapped_column(String(64))
+    # The gated run a promotion is about; null for a retrain authorisation.
+    run_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("retrain_runs.run_id"), nullable=True, index=True
+    )
+
+    # Who, from the verified token -- never from the request body.
+    approver: Mapped[str] = mapped_column(String(255), index=True)
+    approver_role: Mapped[str] = mapped_column(String(64))
+    decision: Mapped[str] = mapped_column(String(16), index=True)
+    reason: Mapped[str] = mapped_column(String(1000))
+
+    # What moved. Recorded as effects, like `retrain_runs.shadow_alias_moved`:
+    # an approval whose alias move did not happen must not read as one that did.
+    challenger_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    champion_version_before: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    champion_version_after: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    champion_alias_moved: Mapped[bool] = mapped_column(Boolean, default=False)
+    shadow_alias_cleared: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Which promotion rules the decision was checked against, and the evidence
+    # it was made on. Aggregates only.
+    rules_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    evidence: Mapped[dict] = mapped_column(JSON_TYPE)
+
+    __table_args__ = (UniqueConstraint("kind", "subject", name="uq_approvals_kind_subject"),)
+
+
+Index("ix_approvals_card_ts", Approval.card_id, Approval.ts)

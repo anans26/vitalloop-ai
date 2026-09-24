@@ -19,8 +19,10 @@ refused outright. A card whose disposition is `AUTO_PROCEED_SHADOW` runs on its
 own authority: that is what §3.8 rule 4 means by "auto -> shadow". A card whose
 disposition is `ESCALATE_HUMAN` runs only when a caller supplies
 `authorized_by`, which is recorded on the row -- WORKFLOW.md §4: "nothing
-retrains until an ops user acts". Week 9 supplies the screen that produces that
-name; Week 8 supplies the field and the refusal.
+retrains until an ops user acts". Week 8 supplied the field and the refusal;
+Week 9 supplies the name: an ops user's `APPROVE` decision in `approvals`
+(`loop/approval/retrain.py`) is read back here as the authorisation, and a
+`REJECT` decision refuses the retrain even if a caller passes a name.
 
 **Autonomy stops at shadow.** A PASS moves the `shadow` alias and nothing else.
 `champion` is never touched here, by any code path, because §3.13 reserves it
@@ -210,7 +212,9 @@ def run_card(
         raise GateRunnerError(f"unknown retrain mode {mode!r}; expected one of {MODES}")
 
     card = dict(card_row.card_json)
-    recorded_authorisation = check_authorised(card, authorized_by)
+    recorded_authorisation = check_authorised(
+        card, _authorisation_on_record(session, card, authorized_by)
+    )
 
     if reuse_existing:
         existing = latest_run_for(
@@ -286,6 +290,29 @@ def run_card(
     )
 
 
+def _authorisation_on_record(session: Session, card: dict, authorized_by: str | None) -> str | None:
+    """Week 9: the approval row speaks for an escalated card, and a rejection is final.
+
+    A person who reviewed an escalated card and rejected the retrain has
+    decided; a CLI flag must not quietly overrule them. A person who approved
+    it supplies the name the run records, so the sweep can act on it.
+    """
+    if card.get("disposition") != ESCALATE_HUMAN:
+        return authorized_by
+
+    from loop.approval.persistence import DECISION_REJECT, KIND_RETRAIN, find_decision
+
+    decision = find_decision(session, KIND_RETRAIN, card["card_id"])
+    if decision is not None and decision.decision == DECISION_REJECT:
+        raise GateRunnerError(
+            f"card {card['card_id']!r}: retrain rejected by {decision.approver} "
+            f"({decision.reason}); a rejected card is not retrained"
+        )
+    if authorized_by:
+        return authorized_by
+    return decision.approver if decision is not None else None
+
+
 def _resumed(existing: RetrainRun, criteria: GateCriteria | None) -> GateRun:
     """A verdict already on record, rebuilt from the row rather than recomputed.
 
@@ -328,11 +355,17 @@ def run_pending(
 ) -> list[GateRun]:
     """Every card awaiting a retrain, oldest first.
 
-    Automated cards only: an escalated card is never swept up, because the
-    authorisation it needs is a person's name and not a default.
+    Automated cards, plus escalated cards an ops user has approved in
+    `approvals` (Week 9). An escalated card nobody has approved is never swept
+    up, because the authorisation it needs is a person's decision and not a
+    default.
     """
     cards = cards_awaiting_retrain(
-        session, scenario=scenario, policy_version=policy_version, limit=limit
+        session,
+        scenario=scenario,
+        policy_version=policy_version,
+        include_approved=True,
+        limit=limit,
     )
     return [run_card(session, card, **kwargs) for card in cards]
 

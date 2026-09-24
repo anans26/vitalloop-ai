@@ -1,0 +1,24 @@
+# VitalLoop 2.0 -- promotion rules, version 1.
+#
+# What must be true before a person may move `champion`, beyond the gate PASS
+# that put the challenger in shadow. ARCHITECTURE.md §6: "Silent model swap --
+# Alias change requires gate PASS + shadow window + logged human approval."
+# The gate's numbers live in gate-v1.yaml; this file holds the other two.
+#
+# Versioned for the same reason policy-v*.yaml and gate-v*.yaml are: changing
+# how much evidence a promotion needs is a reviewable diff, and every approval
+# row records which version it was checked against.
+
+version: promotion-v1
+
+# §3.13: "Shadow model dual-scores live traffic for a configured window (demo:
+# K requests; design: N days)." This is K. A request counts whether the shadow
+# scored it or failed on it -- a failure is evidence too, and the statistics
+# the approver sees report both.
+min_shadow_requests: 50
+
+# RISK_ANALYSIS.md §3 names rubber-stamping ("Automation bias -- humans
+# rubber-stamping approvals") as a high-impact risk. A decision must say why,
+# in words, for both outcomes: an approval with no stated reason is exactly
+# the bare button that row warns about.
+min_reason_length: 10

@@ -19,7 +19,8 @@ from fastapi.responses import JSONResponse
 from api.config import get_settings
 from api.logging_config import configure_logging, get_logger
 from api.model_loader import ModelUnavailableError, load_model_bundle
-from api.routers import health, predict
+from api.routers import health, ops, predict
+from api.shadow import load_shadow_bundle
 from db.session import configure_engine, init_db
 
 logger = get_logger()
@@ -33,7 +34,13 @@ it, which is enough to verify later which input produced a score without the
 audit trail becoming a second copy of the clinical record.
 
 All prediction endpoints require a JWT bearer token carrying a `clinician` or
-`ops` role claim.
+`ops` role claim. The `/ops` endpoints -- shadow statistics, retrain
+authorisation and promotion -- require the `ops` role: whoever *sees* a risk
+score is not automatically whoever *promotes* a model.
+
+When a `shadow` model is registered, every prediction is also scored by it
+after the response is sent. The response only ever carries the champion's
+score.
 """
 
 
@@ -66,16 +73,26 @@ async def lifespan(app: FastAPI):
         app.state.model_bundle = None
         logger.error("model_unavailable", error_category=type(error).__name__)
 
+    # Week 9: the shadow model, if one is registered. Never fatal -- the
+    # champion serves whether or not anything is shadowing it.
+    champion = app.state.model_bundle
+    app.state.shadow_bundle = load_shadow_bundle(
+        settings, champion.model_version if champion else None
+    )
+    if app.state.shadow_bundle is not None:
+        logger.info("shadow_loaded", model_version=app.state.shadow_bundle.model_version)
+
     yield
 
     app.state.model_bundle = None
+    app.state.shadow_bundle = None
 
 
 def create_app() -> FastAPI:
     app = FastAPI(
         title="VitalLoop Readmission API",
         description=API_DESCRIPTION,
-        version="0.5.0",
+        version="0.9.0",
         lifespan=lifespan,
     )
 
@@ -116,6 +133,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(predict.router)
+    app.include_router(ops.router)
     return app
 
 

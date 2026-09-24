@@ -85,10 +85,13 @@ MLOPS PROJECT/
 ├── loop/                            # The self-healing loop
 │   ├── monitor/                     #   Week 6: Evidently drift runs, drift_events persistence
 │   ├── engine/                      #   Week 7: policy table, confidence, Decision Card emission
-│   └── gate/                        #   Week 8: validation gate (pure function) + criteria loading
+│   ├── gate/                        #   Week 8: validation gate (pure function) + criteria loading
+│   ├── narrate/                     #   Week 9: grounding check, Jinja2 template, Ollama client
+│   ├── shadow/                      #   Week 9: shadow agreement statistics (pure function)
+│   └── approval/                    #   Week 9: retrain authorisation + promotion (moves champion)
 ├── scenarios/                       # Seeded drift-injection scripts S1-S5 (the Week 6 benchmark)
-├── configs/                         # Versioned decision policies + gate criteria (policy-v*, gate-v*)
-├── scripts/                         # Operational helpers (dev JWT issuer, replay_retrain)
+├── configs/                         # Versioned policies, gate criteria, promotion rules (policy-v*, gate-v*, promotion-v*)
+├── scripts/                         # Operational helpers (dev JWT issuer, replay_retrain, send_traffic)
 ├── mlflow/                          # Local MLflow store + alias audit log (gitignored)
 ├── reports/                         # Metrics, calibration table, SHAP tables, figures (DVC outputs;
 │                                   #   reports/metrics.json is a git-tracked DVC metric)
@@ -100,7 +103,7 @@ MLOPS PROJECT/
 └── .gitignore
 ```
 
-**Folders that do not exist yet** (per `project_docs/ARCHITECTURE.md` §10's target structure): `dashboard/` (Week 10) and `loop/narrate/` (Week 9). Each belongs to a specific future week (see §6/§11) and has not been created — creating empty stub folders for unimplemented modules is deliberately avoided. (This sentence listed `api/`, `loop/`, `db/`, `scenarios/`, `configs/`, `scripts/` and `reports/` as missing until Week 8; they were built in Weeks 5–8 and the list had gone stale.)
+**Folders that do not exist yet** (per `project_docs/ARCHITECTURE.md` §10's target structure): `dashboard/` (Week 10). It belongs to a specific future week (see §6/§11) and has not been created — creating empty stub folders for unimplemented modules is deliberately avoided. (This sentence listed `api/`, `loop/`, `db/`, `scenarios/`, `configs/`, `scripts/` and `reports/` as missing until Week 8; they were built in Weeks 5–8 and the list had gone stale.)
 
 ---
 
@@ -201,7 +204,7 @@ MLOPS PROJECT/
 ### `ml/registry.py`
 - **Purpose:** the only sanctioned way to register a model version or move an alias, per `project_docs/ARCHITECTURE.md` §3.5.
 - **Contains:** `register_model`, `current_alias_version`, `set_alias`, `ensure_initial_champion`, `write_audit_row`, `read_audit_rows`.
-- **Design note:** `ensure_initial_champion` sets `champion` only when nothing holds it. Week 4 registers; it does not promote. Week 8's gate moves `challenger` and, on a PASS, `shadow` — it still does not touch `champion`, which only the Week 9 approval flow may move.
+- **Design note:** `ensure_initial_champion` sets `champion` only when nothing holds it. Week 4 registers; it does not promote. Week 8's gate moves `challenger` and, on a PASS, `shadow` — it still does not touch `champion`, which only the Week 9 approval flow (`loop/approval/promotion.py`) may move. Week 9 added `actor=` to `set_alias` (a promotion is recorded in the approver's name) and an audited `delete_alias`, used to close a shadow window.
 - **Audit trail:** every alias move appends a row (alias, from/to version, run id, git commit, actor, reason, timestamp) to `mlflow/registry_audit.jsonl`. JSONL because the Postgres table that will hold these rows is Week 5; the record shape is chosen to migrate into one.
 - **Status:** implemented; `vitalloop-readmission` v1 registered with `champion`.
 
@@ -390,12 +393,12 @@ The five-plane target (data → model → serving → self-healing loop → obse
 | Drift monitoring (Evidently) | ✅ Completed | `loop/monitor/` + `scenarios/` — per-window PSI/KS/prediction drift, `drift_events` rows, Evidently HTML reports, seeded scenarios S1–S5 |
 | Decision Engine + Decision Card | ✅ Completed | `configs/policy-v*.yaml` + `loop/engine/` — the versioned six-rule policy table, the decomposed confidence formula, the frozen Pydantic Decision Card, and `decision_cards` persistence with idempotent re-evaluation. `policy-v2` carries the control calibration the roadmap assigns; `policy-v1` is retained unedited because cards reference it |
 | Retrain pipeline + validation gate | ✅ Completed | `ml/retrain.py` + `configs/gate-v1.yaml` + `loop/gate/` — the DVC-pinned challenger run (live or `replay`), the versioned promotion criteria, the gate as a pure function over two metric sets, `retrain_runs` persistence with idempotent re-gating, and `shadow` on PASS. `champion` is never moved here |
-| Shadow deployment, approval, LLM narration | ⬜ Not started | 0% — Week 9 |
+| Shadow deployment, approval, LLM narration | ✅ Completed | `api/shadow.py` + `loop/shadow/` — post-response shadow scoring into `shadow_predictions` and agreement statistics; `loop/approval/` + `api/routers/ops.py` — ops-role retrain authorisation and promotion into `approvals`, the only path that moves `champion`; `loop/narrate/` — Jinja2 narrative (default + fallback), optional self-hosted Ollama, grounding check. See `RUNNING_THE_PROJECT.md` §17 |
 | Dashboard (Streamlit) + audit PDF | ⬜ Not started | 0% — Week 10 |
 | CI/CD hardening | 🟡 Partially completed | Basic lint+test CI exists; training smoke test, gate check, and image build stages are Week 11 |
 | Report / viva prep | ⬜ Not started | 0% — Week 12 |
 
-**Overall project completion: 8 of 12 weeks (~67%) by roadmap time — the data plane, the model plane, the serving plane, and the loop as far as shadow. A card's retrain recommendation now produces a challenger and a gate verdict; what is still missing is everything that would put that challenger in front of anyone — shadow scoring, approval and promotion are Week 9.**
+**Overall project completion: 9 of 12 weeks (75%) by roadmap time — the full governed loop runs end to end: drift → card (narrated) → human authorisation → retrain → gate → shadow scoring → human approval → promotion, every step persisted. What is missing is the dashboard that makes it clickable (Week 10), CI hardening (Week 11) and the report (Week 12).**
 
 ---
 
@@ -443,7 +446,7 @@ There is currently no request flow, no frontend-backend communication, and no AI
 - **Why patient-level, chronologically-ordered splitting (`ml/data/split.py`) instead of a random row-level split:** the dataset's own leakage trap (`project_docs/RISK_ANALYSIS.md`) is exactly a patient appearing in both train and eval; encounter order stands in for real time since the dataset has no timestamps, which is also what the (future) seeded drift benchmark depends on.
 - **Why the 23 medication columns are generated programmatically in `schema.py` rather than written out by hand:** they share one value domain (`{No, Steady, Up, Down}`) — a dict comprehension is less error-prone and easier to keep in sync than 23 near-identical field declarations.
 - **Why Python 3.12 instead of the machine's default 3.14:** at the time of this build, ML libraries (LightGBM, DVC, pandera, and later Evidently/MLflow) have more mature wheel support on 3.12; pinning the project venv avoids intermittent install failures on a bleeding-edge interpreter.
-- **Why Gemini (`gemini-2.5-flash`) was selected for future LLM narration, and why Ollama/Llama 3.1 (as documented in `project_docs/ARCHITECTURE.md`/`TECH_STACK.md`) was not used:** this is a **project-level mandate**, not a decision derived from the planning documents — in fact it runs counter to them. The planning docs argue explicitly for a self-hosted, offline LLM specifically to avoid sending any metadata off-machine, given the system's PHI-adjacent posture. The Gemini mandate requires a cloud API instead. **This conflict is unresolved and flagged, not silently decided**, in `RUNNING_THE_PROJECT.md` §7. It has no effect on anything through Week 2, since no LLM code exists yet.
+- **Why the narration LLM is Ollama (self-hosted Llama 3.1 8B), not Gemini — decided in Week 9:** an earlier note in these docs recorded a "Gemini-only" (`gemini-2.5-flash`) mandate for any LLM, which contradicted `project_docs/ARCHITECTURE.md` §3.10 and `TECH_STACK.md` (self-hosted, offline, so no metadata leaves the machine). The discrepancy was flagged in Week 2 and resolved by the project owner before Week 9 shipped: **Ollama only**, because the project must be free and self-hosted/offline — no paid or cloud LLM dependency. There is no Gemini client, key or configuration anywhere in the repository. The Jinja2 template remains the default narrator and the mandatory fallback, so CI never downloads a model. See `RUNNING_THE_PROJECT.md` §7.
 - **Why no `api/`, `db/`, `loop/`, `dashboard/` folders were pre-created:** avoids empty stub directories/files for functionality that doesn't exist yet; each is created when its week starts, per the roadmap's own week-by-week module boundaries.
 
 ---
@@ -481,9 +484,8 @@ There is currently no request flow, no frontend-backend communication, and no AI
 
 ## 11. Pending Features — NOT IMPLEMENTED
 
-Everything below is described only because it is planned in `project_docs/IMPLEMENTATION_ROADMAP.md`. **None of it exists in the repository today.** (Weeks 3–8 — the model, calibration, SHAP, MLflow tracking and registry, the authenticated serving API with its Postgres audit trail, the Evidently drift monitor with the S1–S5 benchmark, the deterministic Decision Engine with its versioned policy and Decision Cards, and the retrain pipeline with its validation gate — have since been implemented and are no longer listed.) It is listed here purely so a new developer knows what is coming and doesn't go looking for it.
+Everything below is described only because it is planned in `project_docs/IMPLEMENTATION_ROADMAP.md`. **None of it exists in the repository today.** (Weeks 3–9 — the model, calibration, SHAP, MLflow tracking and registry, the authenticated serving API with its Postgres audit trail, the Evidently drift monitor with the S1–S5 benchmark, the deterministic Decision Engine with its versioned policy and Decision Cards, the retrain pipeline with its validation gate, and shadow scoring, the approval flow and grounded narration — have since been implemented and are no longer listed.) It is listed here purely so a new developer knows what is coming and doesn't go looking for it.
 
-- **Week 9 — NOT IMPLEMENTED:** shadow deployment, human approval flow, **any LLM/Gemini narration integration whatsoever**.
 - **Week 10 — NOT IMPLEMENTED:** the Streamlit dashboard, audit PDF export (fpdf2).
 - **Week 11 — NOT IMPLEMENTED:** CI training smoke run, gate check stage, Docker image build stage, coverage gates beyond what exists today.
 - **Week 12 — NOT IMPLEMENTED:** final report, benchmark result tables, demo video, tagged release.
@@ -498,10 +500,11 @@ If any other document (including AI-generated summaries) describes any of the ab
 - **Where the API lives:** `api/` (Week 5; implemented), with database code in `db/`. New endpoints go in `api/routers/`; anything touching an alias or an audit row goes through the existing helpers rather than a new path.
 - **Where model code lives:** `ml/train.py`, `ml/evaluate.py`, `ml/explain.py`, configured by `ml/config.py` (Week 3; implemented). Changing any of these re-runs the DVC model stages — commit the regenerated `dvc.lock` alongside the change.
 - **Where tracking and registry code lives:** `ml/tracking.py` and `ml/registry.py` (Week 4; implemented). An alias must only ever move through `ml.registry.set_alias`, so the audit row cannot be skipped.
-- **Where new AI models/LLM clients will live:** `loop/narrate/` (Week 9; not yet created) — and must use `gemini-2.5-flash` per the project's mandatory constraint, with the offline-vs-cloud conflict (§9) resolved before writing that code.
+- **Where the LLM lives:** `loop/narrate/` (Week 9; implemented). Ollama is the only LLM backend (§9); `prompt.py` is everything it may see (the Decision Card, minus its narrative fields), `grounding.py` is the check every LLM narrative must pass, and `templates/decision_card-v*.j2` is the deterministic default and fallback. A new template wording is a new versioned file, because stored narratives name the version that wrote them.
+- **Where the approval flow and shadow statistics live:** `loop/approval/` and `loop/shadow/` (Week 9; implemented), exposed through `api/routers/ops.py`. `loop/approval/promotion.py` is the only code that moves `champion` after initial registration, and a test enforces that; the promotion thresholds live in `configs/promotion-v*.yaml`.
 - **Where configuration lives:** `configs/` holds the versioned decision policies (`policy-v1.yaml` and `policy-v2.yaml`, the latter in force) and the versioned promotion criteria (`gate-v1.yaml`). A number the system *decides* with belongs there, so a change to it is a reviewable diff; a number the system only *measures* with stays as a module constant beside its code (`ml/config.py`, `loop/monitor/config.py`). Environment variables go in a gitignored `.env` with a committed `.env.example`.
 - **Where monitoring code lives:** `loop/monitor/` (Week 6; implemented) and `scenarios/` for the S1–S5 benchmark.
-- **Where the decision logic lives:** `loop/engine/` (Week 7; implemented). A threshold must never be added to a module there — it goes in `configs/policy-v*.yaml`, and a *new* policy is a new file, because emitted cards name the version that judged them. `policy-v1` is §3.8's literal transcription; `policy-v2` is the same six rules with `psi_breach` calibrated on the no-drift control and is the version in force. **`loop/gate/` (Week 8; implemented)** follows the same rule with `configs/gate-v*.yaml`: no promotion threshold lives in a module, and `loop/gate/gate.py` is a pure function with no database, model, clock or network. `loop/narrate/` is Week 9 and does not exist yet.
+- **Where the decision logic lives:** `loop/engine/` (Week 7; implemented). A threshold must never be added to a module there — it goes in `configs/policy-v*.yaml`, and a *new* policy is a new file, because emitted cards name the version that judged them. `policy-v1` is §3.8's literal transcription; `policy-v2` is the same six rules with `psi_breach` calibrated on the no-drift control and is the version in force. **`loop/gate/` (Week 8; implemented)** follows the same rule with `configs/gate-v*.yaml`: no promotion threshold lives in a module, and `loop/gate/gate.py` is a pure function with no database, model, clock or network. `configs/promotion-v*.yaml` (Week 9) does the same for how much shadow evidence a promotion needs.
 - **Branch conventions:** `main` is the only long-lived branch and must always be demoable — the roadmap's "Friday demo rule" (`project_docs/IMPLEMENTATION_ROADMAP.md`, Standing Rules). Work happens on short-lived branches named `week<N>/<topic>` (e.g. `week3/lightgbm-training`), or `fix/<topic>` for corrections outside the weekly cadence. Branches merge into `main` only with `ruff check .`, `ruff format --check .`, and `pytest -q` green; CI enforces the same three on every push and pull request. Delete the branch after merge.
 - **Commit conventions:** Conventional-Commits style subject lines (`feat:`, `fix:`, `docs:`, `chore:`, `test:`), imperative mood, under ~72 characters, with a body explaining *why* rather than restating the diff. Commits that change `ml/data/schema.py`, `clean.py`, `split.py`, or `build_dataset.py` must include the regenerated `dvc.lock` in the **same** commit — those four files are DVC stage dependencies, so splitting them across commits leaves `main` in a state where `dvc status` is dirty on a fresh clone.
 - **Naming conventions observed so far:** `snake_case` for modules and functions, one module per single responsibility, test files mirror source files 1:1 (`ml/data/clean.py` ↔ `tests/data/test_clean.py`).
@@ -559,7 +562,7 @@ Everything from Week 3 onward — model training, MLflow, the API, monitoring, t
 
 **✓ Known technical debt:**
 - No git commits exist yet — the repository is initialized with everything staged/untracked.
-- The offline-LLM-vs-Gemini-mandate conflict (§9) is identified but not resolved; it must be decided explicitly before Week 9 begins, not defaulted silently.
+- The offline-LLM-vs-Gemini-mandate conflict (§9) is identified but not resolved; it must be decided explicitly before Week 9 begins, not defaulted silently. *(Resolved in Week 9: Ollama only — see §9.)*
 - `ml/data/features.py` is built and tested in isolation but has no real consumer yet — its correctness under an actual training run (with real target leakage/label alignment checks) can only be fully confirmed once Week 3 wires it into `ml/train.py`.
 
 **Next milestones (FUTURE WORK — not started):**
