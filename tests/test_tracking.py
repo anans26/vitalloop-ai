@@ -10,11 +10,11 @@ import ast
 import json
 from pathlib import Path
 
+import mlflow
 import numpy as np
 import pytest
 from mlflow.tracking import MlflowClient
 
-import mlflow
 from ml import evaluate
 from ml.data.features import split_features_target
 from ml.registry import read_audit_rows

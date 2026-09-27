@@ -7,3 +7,10 @@ select = ["E", "F", "I", "UP"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff.lint.isort]
+# `mlflow` is the MLflow package, always third-party. Without this, ruff calls it
+# first-party wherever the gitignored local store `mlflow/` exists (every dev
+# machine) and third-party where it does not (a fresh CI checkout), so import
+# order passed locally and failed in CI. Found by the Week 11 clean-Linux run.
+known-third-party = ["mlflow"]

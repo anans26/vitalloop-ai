@@ -66,6 +66,17 @@ def synthetic_clean_df() -> pd.DataFrame:
     return make_synthetic_clean_df()
 
 
+@pytest.fixture(autouse=True)
+def _isolated_registry_audit(tmp_path, monkeypatch):
+    """No test may append to the real alias audit trail (`mlflow/registry_audit.jsonl`).
+
+    Week 11 found two Week 4 tracking tests writing `test-model` rows into it on
+    every run: the live stack's audit log collected test noise. Every test now
+    gets a private file; a test that needs its own path still sets it.
+    """
+    monkeypatch.setattr("ml.registry.REGISTRY_AUDIT_PATH", tmp_path / "registry_audit.jsonl")
+
+
 # ---------------------------------------------------------------------------
 # Week 5 API fixtures
 # ---------------------------------------------------------------------------

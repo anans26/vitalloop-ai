@@ -65,10 +65,9 @@ def _load_local() -> tuple[Any, Any, str]:
 
 def _load_mlflow(settings: Settings) -> tuple[Any, Any, str]:
     """The registered champion, plus the base model logged in the same run."""
+    import mlflow
     import mlflow.sklearn
     from mlflow.tracking import MlflowClient
-
-    import mlflow
 
     mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
     client = MlflowClient(settings.mlflow_tracking_uri)

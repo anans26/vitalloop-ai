@@ -14,13 +14,16 @@ from dashboard.api_client import ApiError
 from dashboard.context import alias_versions
 
 DEMO_PATH = """
+0. **Start clean** (terminal, before the audience arrives): `python -m scripts.reset_demo --yes`
+   archives the current state, wipes it and reseeds; on a fresh stack `python -m scripts.seed_demo`
+   alone does the seeding. The *Demo state* panel above must say **Replay ready**.
 1. **Overview** -- the champion is serving; send some traffic.
 2. **Drift Monitor** -- *Inject drift* (S1: `num_lab_procedures` shift). The monitor
    measures the next window and the Decision Engine emits a narrated card.
 3. **Decision Cards** -- read the card and its plain-English rationale. On this data
    the S1 card escalates, so it waits for a person.
 4. **Approvals** -- authorise the retrain. **Champion vs Challenger** -- *Retrain + gate*
-   (replay, labelled as such) -> gate PASS -> shadow.
+   (replay: re-registers the seeded cached challenger, labelled REPLAY) -> gate PASS -> shadow.
 5. **Overview** -- send 50+ requests to fill the shadow window. **Approvals** -- approve
    the promotion; the champion version changes live.
 6. **Champion vs Challenger** -- re-run the card with the *deliberately bad challenger*
@@ -99,8 +102,39 @@ def render(ctx) -> None:
         else:
             st.success(f"{result.scored} scored by model version(s) {', '.join(result.versions)}")
 
+    st.subheader("Demo state")
+    ready, message = replay_status(aliases)
+    (st.success if ready else st.warning)(message)
     with st.expander("The 3-minute demo path", expanded=False):
         st.markdown(DEMO_PATH)
+
+
+def replay_status(aliases: dict) -> tuple[bool, str]:
+    """Whether step 4's replay can produce a promotable challenger, and why.
+
+    Replay re-registers whatever `challenger` points at (ARCHITECTURE.md §3.11).
+    After a promotion that is the serving champion, which can never be shadowed
+    or promoted -- so the fast path needs a cached challenger that is *not* the
+    champion, which is exactly what `scripts.seed_demo` provides.
+    """
+    champion, challenger = aliases.get("champion"), aliases.get("challenger")
+    if champion is None:
+        return False, (
+            "No champion is registered: this stack has not been seeded. "
+            "Run `python -m scripts.seed_demo`."
+        )
+    if challenger is not None and challenger != champion:
+        return True, (
+            f"Replay ready: the cached challenger v{challenger} is not the serving champion "
+            f"(v{champion}). A replay re-registers it and is recorded as REPLAY, never as a "
+            "retrain."
+        )
+    detail = "none is cached" if challenger is None else f"v{challenger} is already the champion"
+    return False, (
+        f"Replay unavailable ({detail}): use a live retrain (~70-90 s), or reseed a cached "
+        "challenger with `python -m scripts.seed_demo` (`python -m scripts.reset_demo --yes` "
+        "for a clean state; it archives first)."
+    )
 
 
 def _v(version) -> str:

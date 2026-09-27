@@ -1,7 +1,7 @@
 # Running the Project — VitalLoop 2.0
 
-> **Milestone covered by this document: Week 8 of the 12-week roadmap.**
-> This document describes only what exists and runs in the repository today. Features planned for Week 9 onward (shadow scoring, human approval and promotion, the dashboard, LLM narration) are **not implemented** and are not covered here — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full pending list.
+> **Milestone covered by this document: Week 11 of the 12-week roadmap** (§19; Weeks 9–10 in §17–§18).
+> This document describes only what exists and runs in the repository today. For a fresh clone, the root `README.md` quickstart is the shortest path; this document is the detailed reference. Week 12 (report and release) is pending — see `PROJECT_REPOSITORY_GUIDE.md` §11.
 
 ---
 
@@ -581,7 +581,7 @@ pytest -q tests/test_api_auth.py tests/test_api_predict.py          tests/test_a
 **How to verify the installation:**
 ```bash
 pytest -q
-# Expected: 1225 passed
+# Expected: 1292 passed (about 22 min on the Windows dev machine)
 ruff check .
 # Expected: All checks passed!
 ruff format --check .
@@ -636,7 +636,9 @@ print('No patient leakage across splits: OK')
 
 (Scoped strictly to Week 10 — this is not a roadmap of what's missing overall, just what a developer running the project today should know.)
 
-- **The 3-minute demo needs a rehearsed state.** Replay is only useful while a PASSed challenger is cached and not yet the champion; after a promotion the dashboard refuses replay and a live retrain (~70 s) is needed, which puts the demo path at about 3½ minutes (§18.7). The seed/reset script that rebuilds demo state is Week 11.
+- **The 3-minute demo needs a seeded state.** Replay is only useful while a PASSed challenger is cached and not yet the champion. Since Week 11, `scripts.seed_demo` (or `scripts.reset_demo --yes`) provides that state, and the demo runs in about 95–102 s of machine time (§19.6); after a promotion, reseed or use a live retrain.
+- **A fresh clone's `dvc repro` may record a new model md5.** The model pickle's bytes depend on the environment (memoisation), not its predictions, which are identical (§19.6).
+- **CI has not run on GitHub yet** — nothing is pushed; its jobs were exercised locally (§19.6).
 - **The dashboard has no user accounts.** It trusts the API's verdict on a pasted token (§18.4); token issuance is still the dev script.
 - **Serving latency is above target.** A warm `/predict` takes roughly 350 ms against the roadmap's < 200 ms goal; per-request SHAP dominates. The roadmap's own mitigations (batching, a cached explainer path) are not implemented.
 - **No benchmark card retrains unattended.** Every S1–S3 card escalates (confidence 0.39–0.67 against the 0.75 auto-proceed line), so the automated path is implemented and tested but is never the path the seeded benchmark takes; a retrain on this data needs an ops user's `APPROVE` (§17.3).
@@ -680,9 +682,10 @@ print('No patient leakage across splits: OK')
 - `configs/gate-v1.yaml` + `loop/gate/` + `ml/retrain.py` + `scripts/replay_retrain.py` — the Week 8 retrain-and-gate step: the DVC-pinned challenger run (live or replay), the versioned promotion criteria, the pure validation gate, `retrain_runs` persistence with idempotent re-gating, and the runner CLI
 - Week 10: the Streamlit dashboard (`dashboard/`, six pages behind an API-verified ops token, on :8501 in Compose), the S1/S2 drift-injection button, retrain/replay/deliberately-bad-challenger buttons, demo traffic, and the fpdf2 per-card audit PDF
 - Week 9: shadow scoring after the response (`api/shadow.py`, `loop/shadow/`, `shadow_predictions`); the ops-role approval flow for escalated retrains and for promotion (`loop/approval/`, `api/routers/ops.py`, `approvals`, `configs/promotion-v1.yaml`) — the only path that moves `champion`; grounded narration (`loop/narrate/`: Jinja2 default and fallback, optional self-hosted Ollama)
-- 1225/1225 pytest tests passing (Week 10: 91% branch coverage over `dashboard/` + `loop/gate/` + `api/`, 98% on `dashboard/data.py`, 97% on `dashboard/audit_pdf.py`; Week 9: 97% branch coverage on `loop/approval/promotion.py`, 100% on `loop/approval/retrain.py`, `loop/shadow/stats.py`, `loop/narrate/narrator.py` and `ollama.py`) (99% branch coverage on the Decision Engine, 99% on `loop/gate/` and 100% on `ml/retrain.py`); `ruff check .` and `ruff format --check .` clean
+- Week 11: the CI pipeline (ruff → pytest + 80% per-package coverage floor → synthetic-sample smoke train → gate check → image build), `scripts/seed_demo.py`, the archiving `scripts/reset_demo.py`, the root `README.md` quickstart rehearsed from a fresh clone, and the Overview *Demo state* panel (§19)
+- 1292/1292 pytest tests passing (Week 11: branch coverage 99% `loop/engine`, 99% `loop/gate`, 87% `api`, 85% `scripts/`; Week 10: 91% branch coverage over `dashboard/` + `loop/gate/` + `api/`, 98% on `dashboard/data.py`, 97% on `dashboard/audit_pdf.py`; Week 9: 97% branch coverage on `loop/approval/promotion.py`, 100% on `loop/approval/retrain.py`, `loop/shadow/stats.py`, `loop/narrate/narrator.py` and `ollama.py`) (99% branch coverage on the Decision Engine, 99% on `loop/gate/` and 100% on `ml/retrain.py`); `ruff check .` and `ruff format --check .` clean
 
-**In Progress:** nothing — Week 10 is a clean stopping point with no partially-built component.
+**In Progress:** nothing — Week 11 is a clean stopping point with no partially-built component.
 
 **Open question carried into Week 4:** the Week 3 model scores ~0.60 ROC-AUC,
 below the ~0.64–0.69 range `project_docs/DATASET_ANALYSIS.md` cites for this
@@ -696,7 +699,7 @@ identical conditions. Whether to restate the roadmap's "at or above published
 benchmarks" outcome in light of the stricter protocol is a decision for review,
 not something Week 3 resolved by tuning.
 
-**Remaining (Week 11 onward — see `PROJECT_REPOSITORY_GUIDE.md` §11 for the full list):** CI/CD hardening with the seed/reset demo scripts, and final reporting/viva prep.
+**Remaining (Week 12 — see `PROJECT_REPOSITORY_GUIDE.md` §11):** the final report, benchmark tables, demo video and the tagged release.
 
 ---
 
@@ -1788,3 +1791,203 @@ demand is the seed/reset script, which the roadmap assigns to Week 11.
   `.dockerignore` (the Week 9 API image had shipped a stale `.pyc`), and
   `streamlit`/`fpdf2` in `requirements.txt` (six new pins in `constraints.txt`,
   no existing pin changed).
+
+
+---
+
+## 19. Week 11 — CI/CD, Hardening, the Demo Seed and Reset
+
+### 19.1 What it does
+
+`IMPLEMENTATION_ROADMAP.md`, Week 11: *"GitHub Actions — ruff → pytest →
+training smoke run (sampled data) → gate check → Docker build; Compose profiles
+(with/without ollama); seed script for a fresh-machine demo; test-coverage pass
+(engine + gate + API ≥ 80%); README quickstart verified on a clean machine."*
+Deliverable: *"green pipeline badge; `docker compose up` + seed = working demo
+on a fresh clone."* RISK_ANALYSIS.md §4 adds the reset — *"One-command reset
+(Compose down -v + seed)"* — and names Week 11 for the clean-clone rehearsal.
+
+| Module | Role |
+|---|---|
+| `.github/workflows/ci.yml` | four chained jobs: `lint` → `test` (+ per-package coverage floor) → `smoke` → `images` |
+| `scripts/ci_smoke.py` | the training smoke run on a 5,000-row synthetic sample, then the gate check |
+| `scripts/seed_demo.py` | a running stack → the demo's starting state; idempotent; `--check` reports only |
+| `scripts/reset_demo.py` | archive → restore-verify → remove the two state volumes → rebuild → seed |
+| `README.md` | the fresh-clone quickstart and the 3-minute demo |
+| `dashboard/views/overview.py` | the *Demo state* panel: whether replay can produce a promotable challenger, and what to run if not |
+
+The Compose profiles the roadmap names already existed (Week 9's optional
+`ollama` profile); Week 11 validates both renderings in CI and in a test.
+
+### 19.2 Running it
+
+```bash
+python -m scripts.seed_demo            # after `docker compose up -d --build --wait` and `dvc repro`
+python -m scripts.seed_demo --check    # exit 0 = demo-ready; changes nothing
+python -m scripts.reset_demo           # prints the plan only
+python -m scripts.reset_demo --yes     # archive, wipe, rebuild, reseed
+python -m scripts.ci_smoke             # CI's smoke run + gate check, locally
+```
+
+Both demo scripts read `docker/.env` (the file Compose reads) for anything the
+environment does not set, and `scripts.issue_dev_token` now does the same, so
+the quickstart needs no `export` step.
+
+### 19.3 The demo's starting state, and why it is honest
+
+WORKFLOW.md §5 step 4 says *"Retrain replays a cached run"*, and
+ARCHITECTURE.md §3.11 defines replay as re-registering *"a pre-trained
+challenger"*. Week 10's timing note (§18.7) was that the fast path only exists
+while a PASSed challenger is cached and is *not* the champion. `seed_demo`
+creates exactly that and nothing else:
+
+| Step | What | Idempotency key |
+|---|---|---|
+| champion | the DVC-pinned model (its md5 checked against `dvc.lock`), logged and registered through Week 4's `log_run`; `ensure_initial_champion` sets the alias | `champion` already set → skipped |
+| cached challenger | the same pinned artifact, logged again as its own run tagged `pipeline=week11-demo-seed`, `role=cached-challenger`, `seed_source=dvc-pinned-model-artifact`; `challenger` moved to it with an audited reason that says *not a retrain* | `challenger` set and ≠ `champion` → skipped |
+| serving | `POST /ops/models/reload` under an `ops` token for `demo-seed`, because on a fresh stack the API starts before any model exists | API already serves the champion → skipped |
+| traffic | the first 20 serving-stream rows through `/predict` as the clinician `demo-seed` | audit table not empty → skipped |
+
+It never moves `champion` after the first registration and never sets
+`shadow`. The cached challenger is the model a live retrain produces on this
+data (§16.9: identical metrics; §17.7: agreement 1.0), so replaying it gates
+the same numbers a live retrain would — faster, and recorded as `REPLAY`.
+Nothing about the model, the policy, the gate criteria or the promotion rules
+changed to make the demo faster.
+
+### 19.4 The reset, and what it does with history
+
+A bare `down -v` would delete the audit trail. `reset_demo --yes` moves it
+instead, and refuses to destroy anything it has not proven it can restore:
+
+1. `pg_dump` the audit database into `backups/demo-reset-<UTC>/postgres.sql`;
+2. restore that dump into a scratch database in the same container and compare
+   every table's row count with the live database — any difference aborts;
+3. copy the MLflow server's store (`docker compose cp mlflow:/mlflow`) and the
+   alias log `mlflow/registry_audit.jsonl`, with SHA-256s in `manifest.json`
+   and restore instructions in `README.txt`;
+4. only then `docker compose down` and remove exactly `<project>_pgdata` and
+   `<project>_mlflow-data` — never the optional `ollama-models` volume;
+5. start the live alias log empty (its verified copy is archived beside the
+   database it describes), `docker compose up -d --build --wait`, seed.
+
+`backups/` is gitignored and excluded from the Docker build context.
+
+### 19.5 CI
+
+| Job | Runs | Needs |
+|---|---|---|
+| `lint` | `ruff check .`, `ruff format --check .` | — |
+| `test` | `pytest` with branch coverage; then `coverage report --fail-under=80` separately for `loop/engine`, `loop/gate` and `api` | `lint` |
+| `smoke` | `python -m scripts.ci_smoke --rows 5000` (summary uploaded as an artifact) | `test` |
+| `images` | `docker compose config` with and without `--profile ollama`; `docker compose build api monitor dashboard` | `smoke` |
+
+**The sample is synthetic, deliberately.** The dataset is DVC-tracked against a
+*local* remote, so a runner never has it, and downloading it from UCI would make
+every pipeline depend on a third-party server. `ci_smoke` generates a
+deterministic frame in the cleaned-split shape (no real record), then runs the
+production split, `ml.train.train_models`, `ml.evaluate.build_report`, and the
+gate under `configs/gate-v1.yaml`. It fails unless the retrained challenger
+PASSes **and** the inverted challenger BLOCKs. At 5,000 rows the absolute ECE
+ceiling has headroom (0.0156 and 0.0197 on the two sets against 0.05; seeds
+0–9 also all passed, worst 0.0451); at 2,000–4,000 rows the 15% window is too
+noisy and the gate genuinely BLOCKs — which is why the roadmap's 5k is kept.
+
+CI needs no Postgres, MLflow server, Ollama, secret, model download or dataset:
+data-dependent tests skip, the tracking tests use SQLite, and every LLM test
+uses a mocked transport.
+
+### 19.6 Verified
+
+**Fresh-clone rehearsal** — a new `git clone` into a temporary directory with
+the Week 11 tree applied, a new Python 3.12 venv, and a separate Compose
+project name so the existing stack's volumes were never touched — on
+2026-09-27:
+
+| Step | Result |
+|---|---|
+| `pip install -r requirements.txt -c constraints.txt` into a new venv | clean |
+| `python -m ml.data.ingest` + `dvc repro` | 1 min 14 s; every **data** hash and `reports/metrics.json` identical to the committed `dvc.lock` (see the model-hash note below) |
+| `docker compose up -d --build --wait` | all five services up (9 min 18 s, three image builds) |
+| `seed_demo --check` on the empty stack | *NOT demo-ready: no champion is registered; no cached challenger* |
+| `seed_demo` | champion v1, cached challenger v2, API reloaded onto v1, 20 predictions (1 min 51 s) |
+| `seed_demo` again | nothing registered, no traffic sent — idempotent |
+| The six-step demo, driven through the real pages with `AppTest` against the live services | **102.1 s** machine time: S1 w0 card `FULL_RETRAIN / ESCALATE_HUMAN` (0.3941) → authorised → **replay PASS** → 55 requests → **champion v1 → v2**, served live → bad challenger **BLOCK (37 reasons)** → PDF offered |
+| Clinician token on `/ops/*` | 403; refused at dashboard sign-in |
+| All six pages | render in 1.4–2.0 s |
+| `restart api dashboard` | API back on v2; dashboard health 200 |
+| JWT variables in the dashboard / monitor containers | 0 / 0 |
+| `reset_demo --yes` on that stack | 2 min 25 s; 200 rows archived and restore-verified; only that project's two volumes removed; reseeded demo-ready |
+| The demo again, from the reset state | **96.3 s**; identical card, verdicts and promotion |
+
+**The development stack.** `reset_demo --yes` was then run on the existing
+stack, which held the Week 9/10 history — 201 predictions, 24 drift windows
+(including §17.7's duplicate S1 windows and S1 window 4), 42 cards, 7 retrain
+runs, 8 approvals, 170 shadow scores, champion v5 and a 57-line alias log. All
+of it is in `backups/demo-reset-20260927T075525Z/`, restore-verified row for
+row; nothing was edited or deleted in place. The demo on the reseeded stack:
+**94.9 s**. A PHI-pattern scan of every row of every table, the API logs and
+the card's 4-page audit PDF found no identifier and no feature value; the PDF
+labels the replay and the constructed bad challenger.
+
+**Three problems the rehearsal found, fixed here:**
+
+- **CI lint would have failed on its first run.** Ruff classified `mlflow` as
+  first-party wherever the gitignored local store `mlflow/` exists (every dev
+  machine) and third-party on a fresh checkout. `pyproject.toml` now pins it
+  as third-party; six import blocks were re-sorted (no behaviour change, no
+  DVC stage dependency touched).
+- **The test suite wrote to the real alias log.** Two Week 4 tracking tests
+  appended `test-model` rows to `mlflow/registry_audit.jsonl` on every run
+  (one from 2026-09-24 and two from this week's baseline run are in the
+  archive). An autouse fixture in `tests/conftest.py` now gives every test a
+  private file, and a test asserts it.
+- **`mlflow:latest` was unpinned.** A fresh machine would pull a server newer
+  than the one Weeks 4–10 were verified against — the Week 9 `--allowed-hosts`
+  break was exactly that. The image is pinned to `v3.14.0`, the version the
+  stack ran.
+
+**One finding documented rather than changed:** on a different checkout path,
+`dvc repro` writes a model joblib whose bytes differ (pickle memoisation of
+column-name strings) and so records a new md5 for
+`models/readmission_model.joblib` in `dvc.lock`. The data hashes, the metrics
+and every downstream output are identical, and the two models' predictions on
+all 10,498 frozen-eval rows differ by exactly 0.0. Making the pickle
+byte-stable would mean changing Week 3's training code and re-pinning lineage,
+which is outside Week 11's scope.
+
+**CI, run locally.** The `lint`, `test` and `smoke` jobs' commands were run in
+a clean `python:3.12-slim` container from the tracked tree only (no dataset,
+no model, no `mlflow/` directory): ruff clean; **1272 passed, 20 skipped** —
+the skips are the data- and artifact-dependent tests, by design — in 23 min 51 s;
+branch coverage `loop/engine` 99%, `loop/gate` 99%, `api` 85%, every floor
+met; the smoke run PASSed the retrained challenger and BLOCKed the bad one.
+The `images` job's builds are the rehearsal's `docker compose up --build`
+above, and `docker compose config` was validated with and without the
+`ollama` profile. On Windows with the data present the suite is **1292
+passed, 0 skipped** (21 min 35 s); `scripts/` is at 85%.
+
+**Not verified:** the workflow has not run on GitHub, because nothing has been
+pushed. The README badge will show the first real run.
+
+### 19.7 Privacy and security
+
+- The smoke sample is generated; no record is read, written or uploaded.
+- The seed sends stream rows only through the API's contract (no identifiers)
+  and prints no secret; the tokens it mints live in memory for one run.
+- Archives contain the audit database, which holds hashes and aggregates only
+  (§9.3); they stay local (`backups/` gitignored and excluded from images).
+- The dashboard still holds no JWT secret; the seed and reset run on the host.
+
+### 19.8 What Week 11 deliberately does not do
+
+- **No model, policy, gate or promotion change** to make the demo faster —
+  the speed comes from replaying a correctly labelled cached challenger.
+- **No new page.** The demo state is a panel on Overview.
+- **No push.** CI is configured and locally exercised; its first GitHub run is
+  the owner's to trigger.
+- **No change to the monitor's restart behaviour:** a restarted `monitor`
+  begins the `live` stream at window 0 again and appends duplicate live
+  windows (the Week 6 behaviour §17.7 describes for scenarios). It affects
+  only the quiet `live` stream, not the S1/S2 demo path, which the dashboard
+  button measures exactly once per window.

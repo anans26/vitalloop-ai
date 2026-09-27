@@ -25,11 +25,11 @@ import sys
 import tempfile
 from pathlib import Path
 
+import mlflow
 import mlflow.sklearn
 import yaml
 from mlflow.tracking import MlflowClient
 
-import mlflow
 from ml.config import (
     CALIBRATION_FIGURE_PATH,
     METADATA_PATH,
@@ -258,8 +258,14 @@ def log_run(
     model_name: str = REGISTERED_MODEL_NAME,
     artifacts=SAFE_ARTIFACTS,
     pip_requirements=None,
+    tags: dict | None = None,
 ) -> dict:
-    """Records one tracked run and returns a summary of what was written."""
+    """Records one tracked run and returns a summary of what was written.
+
+    `tags` are added to the run's standard tags (and may override them). Week
+    11's demo seed uses them to label the run it registers as the cached
+    challenger, so that run is never mistaken for a Week 4 baseline run.
+    """
     tracking_uri = tracking_uri or resolve_tracking_uri()
     verify_tracking_reachable(tracking_uri)
     mlflow.set_tracking_uri(tracking_uri)
@@ -279,6 +285,7 @@ def log_run(
                 "pipeline": "week3-readmission",
                 "inference_model": "calibrated",
                 "future_stream_used": "false",
+                **(tags or {}),
             }
         )
         mlflow.log_metrics(metrics)

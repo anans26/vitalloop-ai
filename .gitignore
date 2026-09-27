@@ -132,3 +132,8 @@ mlflow/
 
 # DVC local remote (this machine's cache mirror, not source-controlled)
 dvc-storage/
+
+# Week 11 demo resets: archived database dumps and MLflow stores taken by
+# scripts/reset_demo.py before it removes the Compose state volumes. Local,
+# machine-specific audit history -- kept, never committed.
+backups/

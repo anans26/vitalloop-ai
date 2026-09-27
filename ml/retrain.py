@@ -190,9 +190,9 @@ def log_challenger(
     this model version" is answerable from MLflow alone as well as from
     `retrain_runs`.
     """
+    import mlflow
     import mlflow.sklearn
 
-    import mlflow
     from ml.tracking import build_metrics, build_params, verify_tracking_reachable
     from ml.tracking_config import (
         BASE_MODEL_ARTIFACT,
@@ -287,9 +287,8 @@ def replay_challenger(
     is logged as new work, and the returned run is labeled `replay` so the
     `retrain_runs` row cannot pass it off as a live retrain.
     """
-    import mlflow.sklearn
-
     import mlflow
+    import mlflow.sklearn
 
     tracking_uri = tracking_uri or resolve_tracking_uri()
     client = MlflowClient(tracking_uri)
@@ -342,9 +341,8 @@ def load_champion(
     §3.12 compares the challenger against *the champion*, and the champion is
     whatever `champion` points at, not whatever is on this disk.
     """
-    import mlflow.sklearn
-
     import mlflow
+    import mlflow.sklearn
 
     tracking_uri = tracking_uri or resolve_tracking_uri()
     client = MlflowClient(tracking_uri)

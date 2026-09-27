@@ -1,11 +1,21 @@
 name: CI
 
+# ARCHITECTURE.md §5 / IMPLEMENTATION_ROADMAP.md Week 11:
+#   ruff -> pytest -> training smoke run (sampled data) -> gate check -> Docker build
+#
+# CI-safe by construction: no Postgres (the suite uses SQLite), no MLflow server
+# (tracking tests use a throwaway SQLite store), no Ollama and no model download
+# (every LLM test uses a mocked transport; the Jinja2 template is the narrator
+# CI exercises), and no network access beyond installing pinned dependencies.
+# The real dataset is DVC-tracked against a local remote, so CI never has it:
+# data-dependent tests skip, and the smoke run trains on a synthetic sample.
+
 on:
   push:
   pull_request:
 
 jobs:
-  lint-and-test:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,4 +34,73 @@ jobs:
       # DVC stage dependencies, so an unformatted file landing on main would
       # change their hashes and invalidate dvc.lock.
       - run: ruff format --check .
-      - run: pytest -q
+
+  test:
+    needs: lint
+    runs-on: ubuntu-latest
+    env:
+      MLFLOW_DISABLE_AGENT_HINT: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            constraints.txt
+      - run: pip install -r requirements.txt -c constraints.txt
+      - name: pytest (branch coverage on the engine, the gate and the API)
+        run: >
+          pytest -q
+          --cov=loop.engine --cov=loop.gate --cov=api --cov-branch
+          --cov-report=term
+      # Roadmap Week 11: "engine + gate + API >= 80%" -- held per package, so
+      # one well-covered package cannot carry a poorly covered one.
+      - name: coverage floor (80% each)
+        run: |
+          coverage report --include='loop/engine/*' --fail-under=80
+          coverage report --include='loop/gate/*' --fail-under=80
+          coverage report --include='api/*' --fail-under=80
+
+  smoke:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      MLFLOW_DISABLE_AGENT_HINT: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            constraints.txt
+      - run: pip install -r requirements.txt -c constraints.txt
+      # Trains with the production entry point on a 5,000-row synthetic sample,
+      # then gates: the retrained challenger must PASS and the deliberately bad
+      # challenger must BLOCK under configs/gate-v1.yaml. Either failing fails CI.
+      - name: training smoke run + gate check
+        run: python -m scripts.ci_smoke --rows 5000 --output smoke-summary.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smoke-summary
+          path: smoke-summary.json
+
+  images:
+    needs: smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Compose refuses to render without the required variables; the committed
+      # template's placeholders are enough to build, and nothing is started.
+      - run: cp docker/.env.example docker/.env
+      - name: validate compose (default and with the optional ollama profile)
+        working-directory: docker
+        run: |
+          docker compose config --quiet
+          docker compose --profile ollama config --quiet
+      - name: build the api, monitor and dashboard images
+        working-directory: docker
+        run: docker compose build api monitor dashboard

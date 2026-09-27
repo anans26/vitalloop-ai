@@ -25,7 +25,7 @@
 MLOPS PROJECT/
 ├── .github/
 │   └── workflows/
-│       └── ci.yml                  # GitHub Actions: lint + test only (no training stage yet)
+│       └── ci.yml                  # GitHub Actions: ruff → pytest + coverage floor → smoke train → gate check → image build
 ├── .dvc/                           # DVC internal config + cache pointers (not hand-edited)
 ├── .venv/                          # Python 3.12 virtual environment (gitignored, machine-local)
 ├── datasets/
@@ -93,7 +93,9 @@ MLOPS PROJECT/
 │   └── approval/                    #   Week 9: retrain authorisation + promotion (moves champion)
 ├── scenarios/                       # Seeded drift-injection scripts S1-S5 (the Week 6 benchmark)
 ├── configs/                         # Versioned policies, gate criteria, promotion rules (policy-v*, gate-v*, promotion-v*)
-├── scripts/                         # Operational helpers (dev JWT issuer, replay_retrain, send_traffic)
+├── scripts/                         # Operational helpers (dev JWT issuer, replay_retrain, send_traffic;
+│                                   #   Week 11: seed_demo, reset_demo, ci_smoke)
+├── backups/                         # Week 11: archives taken by reset_demo before a wipe (gitignored)
 ├── mlflow/                          # Local MLflow store + alias audit log (gitignored)
 ├── reports/                         # Metrics, calibration table, SHAP tables, figures (DVC outputs;
 │                                   #   reports/metrics.json is a git-tracked DVC metric)
@@ -102,10 +104,11 @@ MLOPS PROJECT/
 ├── pyproject.toml                  # ruff + pytest configuration
 ├── requirements.txt                # Week 1-2 direct dependencies (lower bounds)
 ├── constraints.txt                 # Exact pinned versions incl. transitive deps (generated)
+├── README.md                       # Week 11: the fresh-clone quickstart and the 3-minute demo
 └── .gitignore
 ```
 
-**Folders that do not exist yet:** none of `project_docs/ARCHITECTURE.md` §10's target folders remain unbuilt as of Week 10. (`README.md` and the seed/reset scripts PROJECT_DESIGN.md lists under `scripts/` are Week 11 work and do not exist.) (This sentence listed `api/`, `loop/`, `db/`, `scenarios/`, `configs/`, `scripts/` and `reports/` as missing until Week 8; they were built in Weeks 5–8 and the list had gone stale.)
+**Folders that do not exist yet:** none of `project_docs/ARCHITECTURE.md` §10's target folders remain unbuilt as of Week 10. (`README.md` and the seed/reset scripts PROJECT_DESIGN.md lists under `scripts/` were added in Week 11; PROJECT_DESIGN.md's names `seed_demo.py` and `reset.py` are implemented as `scripts/seed_demo.py` and `scripts/reset_demo.py`.) (This sentence listed `api/`, `loop/`, `db/`, `scenarios/`, `configs/`, `scripts/` and `reports/` as missing until Week 8; they were built in Weeks 5–8 and the list had gone stale.)
 
 ---
 
@@ -224,7 +227,13 @@ MLOPS PROJECT/
 
 ### `scripts/issue_dev_token.py`
 - **Purpose:** mints a development JWT signed with the same secret the API verifies with.
-- **Status:** implemented; tokens are printed to stdout and never written to disk.
+- **Status:** implemented; tokens are printed to stdout and never written to disk. Since Week 11 it reads `VITALLOOP_JWT_SECRET` from `docker/.env` when the environment does not set it.
+
+### `scripts/seed_demo.py` / `scripts/reset_demo.py` (Week 11)
+- **Purpose:** `seed_demo` brings a running stack to the demo's starting state — the DVC-pinned model registered as `champion`, the same artifact registered again as a labelled cached challenger for replay, the API reloaded onto the champion, baseline traffic when the audit table is empty. Idempotent. `reset_demo --yes` archives the audit database (`pg_dump`, restore-verified), the MLflow store and the alias log into `backups/`, removes only the two state volumes, rebuilds, and reseeds. See `RUNNING_THE_PROJECT.md` §19.
+
+### `scripts/ci_smoke.py` (Week 11)
+- **Purpose:** CI's training smoke run and gate check: the production split/train/evaluate code on a deterministic 5,000-row synthetic sample, then the gate under `configs/gate-v1.yaml` — the retrained challenger must PASS and the deliberately bad one must BLOCK.
 
 ### `docker/docker-compose.yml`
 - **Purpose:** local PostgreSQL 16 instance.
@@ -251,10 +260,10 @@ MLOPS PROJECT/
 - **Status:** implemented; installs cleanly into a Python 3.12 venv.
 
 ### `.github/workflows/ci.yml`
-- **Purpose:** GitHub Actions job — checkout, set up Python 3.12, `pip install -r requirements.txt -c constraints.txt`, `ruff check .`, `ruff format --check .`, `pytest -q`.
-- **Status:** implemented; the same commands (`ruff check .`, `ruff format --check .`, `pytest -q`) pass locally, but the workflow has **not yet been observed running on GitHub**.
+- **Purpose:** four chained GitHub Actions jobs (Week 11), matching ARCHITECTURE.md §5: `lint` (`ruff check .`, `ruff format --check .`) → `test` (`pytest` with branch coverage, then an 80% floor held separately on `loop/engine`, `loop/gate` and `api`) → `smoke` (`python -m scripts.ci_smoke --rows 5000`) → `images` (`docker compose config` with and without the `ollama` profile, then `docker compose build api monitor dashboard`). No database, MLflow server, Ollama, secret or dataset is needed.
+- **Status:** implemented; every step was run locally (see `RUNNING_THE_PROJECT.md` §19), but nothing has been pushed, so the workflow has **not yet been observed running on GitHub** and the README badge has no run behind it yet.
 
-### Files that do **not** exist (and should not be assumed): `main.py`, `server.py`, `app.py`, any `index.tsx`/frontend component, any `Dockerfile` beyond the Compose file, any `README.md` at the project root, any `db/` migration files. (`docker/.env.example` **does** exist and is committed; the `docker/.env` it is copied to is gitignored and must never be committed.) If any future document references these, treat that as describing planned, not current, state.
+### Files that do **not** exist (and should not be assumed): `main.py`, `server.py`, `app.py`, any `index.tsx`/frontend component, any `db/` migration files. (A root `README.md` exists since Week 11.) (`docker/.env.example` **does** exist and is committed; the `docker/.env` it is copied to is gitignored and must never be committed.) If any future document references these, treat that as describing planned, not current, state.
 
 ---
 
@@ -397,10 +406,10 @@ The five-plane target (data → model → serving → self-healing loop → obse
 | Retrain pipeline + validation gate | ✅ Completed | `ml/retrain.py` + `configs/gate-v1.yaml` + `loop/gate/` — the DVC-pinned challenger run (live or `replay`), the versioned promotion criteria, the gate as a pure function over two metric sets, `retrain_runs` persistence with idempotent re-gating, and `shadow` on PASS. `champion` is never moved here |
 | Shadow deployment, approval, LLM narration | ✅ Completed | `api/shadow.py` + `loop/shadow/` — post-response shadow scoring into `shadow_predictions` and agreement statistics; `loop/approval/` + `api/routers/ops.py` — ops-role retrain authorisation and promotion into `approvals`, the only path that moves `champion`; `loop/narrate/` — Jinja2 narrative (default + fallback), optional self-hosted Ollama, grounding check. See `RUNNING_THE_PROJECT.md` §17 |
 | Dashboard (Streamlit) + audit PDF | ✅ Completed | `dashboard/` — the six §3.14 pages (Overview, Drift Monitor, Decision Cards, Champion vs Challenger, Approvals, Audit) behind an API-verified ops token; the drift-injection button (S1/S2), retrain/replay/bad-challenger buttons and demo traffic; the fpdf2 per-card audit PDF. Decisions go through the API's `/ops` endpoints. See `RUNNING_THE_PROJECT.md` §18 |
-| CI/CD hardening | 🟡 Partially completed | Basic lint+test CI exists; training smoke test, gate check, and image build stages are Week 11 |
+| CI/CD hardening | ✅ Completed | Week 11: the full ruff → pytest (+80% coverage floor on engine, gate, API) → smoke train → gate check → image build pipeline; the seed/reset scripts; the root README quickstart, rehearsed from a fresh clone. See `RUNNING_THE_PROJECT.md` §19 |
 | Report / viva prep | ⬜ Not started | 0% — Week 12 |
 
-**Overall project completion: 10 of 12 weeks (~83%) by roadmap time — the full governed loop runs end to end and is clickable from the dashboard: inject drift → narrated card → human authorisation → retrain (live, replay, or the deliberately bad challenger) → gate → shadow → human approval → live promotion → audit PDF. What is missing is CI hardening and the fresh-machine seed/reset (Week 11) and the report (Week 12).**
+**Overall project completion: 11 of 12 weeks (~92%) by roadmap time — the full governed loop runs end to end and is clickable from the dashboard: inject drift → narrated card → human authorisation → retrain (live, replay, or the deliberately bad challenger) → gate → shadow → human approval → live promotion → audit PDF. Week 11 added the CI pipeline, the fresh-machine seed and the archiving reset. What is missing is the report and release (Week 12).**
 
 ---
 
@@ -486,9 +495,8 @@ There is currently no request flow, no frontend-backend communication, and no AI
 
 ## 11. Pending Features — NOT IMPLEMENTED
 
-Everything below is described only because it is planned in `project_docs/IMPLEMENTATION_ROADMAP.md`. **None of it exists in the repository today.** (Weeks 3–10 — the model, calibration, SHAP, MLflow tracking and registry, the authenticated serving API with its Postgres audit trail, the Evidently drift monitor with the S1–S5 benchmark, the deterministic Decision Engine with its versioned policy and Decision Cards, the retrain pipeline with its validation gate, shadow scoring, the approval flow and grounded narration, and the dashboard with its audit PDF — have since been implemented and are no longer listed.) It is listed here purely so a new developer knows what is coming and doesn't go looking for it.
+Everything below is described only because it is planned in `project_docs/IMPLEMENTATION_ROADMAP.md`. **None of it exists in the repository today.** (Weeks 3–11 — the model, calibration, SHAP, MLflow tracking and registry, the authenticated serving API with its Postgres audit trail, the Evidently drift monitor with the S1–S5 benchmark, the deterministic Decision Engine with its versioned policy and Decision Cards, the retrain pipeline with its validation gate, shadow scoring, the approval flow and grounded narration, the dashboard with its audit PDF, and the CI pipeline with the demo seed/reset — have since been implemented and are no longer listed.) It is listed here purely so a new developer knows what is coming and doesn't go looking for it.
 
-- **Week 11 — NOT IMPLEMENTED:** CI training smoke run, gate check stage, Docker image build stage, coverage gates beyond what exists today.
 - **Week 12 — NOT IMPLEMENTED:** final report, benchmark result tables, demo video, tagged release.
 
 If any other document (including AI-generated summaries) describes any of the above as done, that description is incorrect as of this repository's current state — treat this section as authoritative for "not yet built."

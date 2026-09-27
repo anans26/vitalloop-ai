@@ -16,3 +16,4 @@ notebooks
 reports
 node_modules
 docker/.env
+backups

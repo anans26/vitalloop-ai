@@ -23,8 +23,13 @@ services:
   # --serve-artifacts makes the server proxy artifact uploads, so artifact URIs
   # are server-relative instead of host paths -- this is what avoids the Windows
   # artifact-path problem the roadmap flags as the Week 4 risk.
+  #
+  # Week 11: pinned to the server version Weeks 4-10 were verified against.
+  # `latest` let a fresh machine pull a different server than the one tested --
+  # the Week 9 `--allowed-hosts` break was exactly that -- and a fresh-clone
+  # demo is the Week 11 deliverable.
   mlflow:
-    image: ghcr.io/mlflow/mlflow:latest
+    image: ghcr.io/mlflow/mlflow:v3.14.0
     command: >
       mlflow server
       --host 0.0.0.0
