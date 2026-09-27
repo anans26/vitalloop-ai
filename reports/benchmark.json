@@ -1,0 +1,1044 @@
+{
+  "gated_policy": "policy-v2",
+  "lineage": {
+    "dvc_eval_frozen_md5": "cc236eb77449ad46244f45527eccc8c5",
+    "dvc_model_md5": "850b25bd16230f260f72d1e72af14162",
+    "dvc_raw_md5": "8a01d91d7d156423e7c84a8022e980af",
+    "dvc_train_md5": "ebbfae6002203ba5e60ce9647b5e9a92",
+    "git_branch": "main",
+    "git_commit": "c7758b83a10794b47d3b7a1585461906a54a830d",
+    "git_dirty": true
+  },
+  "summary": {
+    "policy-v1": {
+      "control_false_trigger_rate": 0.8,
+      "scenarios": {
+        "S1": {
+          "acting_card_rate": 1.0,
+          "actions": [
+            "FULL_RETRAIN"
+          ],
+          "bad_challenger_block": 0,
+          "confidence_range": [
+            0.4021,
+            0.5885
+          ],
+          "detection_latency_windows": 0,
+          "dispositions": [
+            "ESCALATE_HUMAN"
+          ],
+          "gated_cards": 0,
+          "monitor_breach_rate": 1.0,
+          "retrained_block": 0,
+          "retrained_pass": 0,
+          "windows": 5
+        },
+        "S2": {
+          "acting_card_rate": 1.0,
+          "actions": [
+            "FULL_RETRAIN"
+          ],
+          "bad_challenger_block": 0,
+          "confidence_range": [
+            0.4857,
+            0.6375
+          ],
+          "detection_latency_windows": 0,
+          "dispositions": [
+            "ESCALATE_HUMAN"
+          ],
+          "gated_cards": 0,
+          "monitor_breach_rate": 1.0,
+          "retrained_block": 0,
+          "retrained_pass": 0,
+          "windows": 5
+        },
+        "S3": {
+          "acting_card_rate": 1.0,
+          "actions": [
+            "FULL_RETRAIN"
+          ],
+          "bad_challenger_block": 0,
+          "confidence_range": [
+            0.4679,
+            0.6917
+          ],
+          "detection_latency_windows": 0,
+          "dispositions": [
+            "ESCALATE_HUMAN"
+          ],
+          "gated_cards": 0,
+          "monitor_breach_rate": 1.0,
+          "retrained_block": 0,
+          "retrained_pass": 0,
+          "windows": 5
+        },
+        "S4": {
+          "acting_card_rate": 0.8,
+          "actions": [
+            "ALERT_ONLY",
+            "INCREMENTAL_RETRAIN",
+            "NO_OP"
+          ],
+          "bad_challenger_block": 0,
+          "confidence_range": [
+            0.1869,
+            0.4464
+          ],
+          "detection_latency_windows": 1,
+          "dispositions": [
+            "AUTO_PROCEED_SHADOW",
+            "NONE"
+          ],
+          "gated_cards": 0,
+          "monitor_breach_rate": 0.8,
+          "retrained_block": 0,
+          "retrained_pass": 0,
+          "windows": 5
+        },
+        "S5": {
+          "acting_card_rate": 0.8,
+          "actions": [
+            "ALERT_ONLY",
+            "INCREMENTAL_RETRAIN",
+            "NO_OP"
+          ],
+          "bad_challenger_block": 0,
+          "confidence_range": [
+            0.1869,
+            0.4464
+          ],
+          "detection_latency_windows": 1,
+          "dispositions": [
+            "AUTO_PROCEED_SHADOW",
+            "NONE"
+          ],
+          "gated_cards": 0,
+          "monitor_breach_rate": 0.8,
+          "retrained_block": 0,
+          "retrained_pass": 0,
+          "windows": 5
+        }
+      }
+    },
+    "policy-v2": {
+      "control_false_trigger_rate": 0.0,
+      "scenarios": {
+        "S1": {
+          "acting_card_rate": 1.0,
+          "actions": [
+            "FULL_RETRAIN"
+          ],
+          "bad_challenger_block": 5,
+          "confidence_range": [
+            0.3941,
+            0.5645
+          ],
+          "detection_latency_windows": 0,
+          "dispositions": [
+            "ESCALATE_HUMAN"
+          ],
+          "gated_cards": 5,
+          "monitor_breach_rate": 1.0,
+          "retrained_block": 2,
+          "retrained_pass": 3,
+          "windows": 5
+        },
+        "S2": {
+          "acting_card_rate": 1.0,
+          "actions": [
+            "FULL_RETRAIN"
+          ],
+          "bad_challenger_block": 5,
+          "confidence_range": [
+            0.4857,
+            0.6215
+          ],
+          "detection_latency_windows": 0,
+          "dispositions": [
+            "ESCALATE_HUMAN"
+          ],
+          "gated_cards": 5,
+          "monitor_breach_rate": 1.0,
+          "retrained_block": 1,
+          "retrained_pass": 4,
+          "windows": 5
+        },
+        "S3": {
+          "acting_card_rate": 1.0,
+          "actions": [
+            "FULL_RETRAIN"
+          ],
+          "bad_challenger_block": 5,
+          "confidence_range": [
+            0.4599,
+            0.6733
+          ],
+          "detection_latency_windows": 0,
+          "dispositions": [
+            "ESCALATE_HUMAN"
+          ],
+          "gated_cards": 5,
+          "monitor_breach_rate": 1.0,
+          "retrained_block": 1,
+          "retrained_pass": 4,
+          "windows": 5
+        },
+        "S4": {
+          "acting_card_rate": 0.0,
+          "actions": [
+            "NO_OP"
+          ],
+          "bad_challenger_block": 0,
+          "confidence_range": [
+            0.1869,
+            0.2414
+          ],
+          "detection_latency_windows": null,
+          "dispositions": [
+            "NONE"
+          ],
+          "gated_cards": 0,
+          "monitor_breach_rate": 0.8,
+          "retrained_block": 0,
+          "retrained_pass": 0,
+          "windows": 5
+        },
+        "S5": {
+          "acting_card_rate": 0.0,
+          "actions": [
+            "NO_OP"
+          ],
+          "bad_challenger_block": 0,
+          "confidence_range": [
+            0.1869,
+            0.2414
+          ],
+          "detection_latency_windows": null,
+          "dispositions": [
+            "NONE"
+          ],
+          "gated_cards": 0,
+          "monitor_breach_rate": 0.8,
+          "retrained_block": 0,
+          "retrained_pass": 0,
+          "windows": 5
+        }
+      }
+    }
+  },
+  "windows": {
+    "policy-v1": [
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 2,
+        "card_id": "dc-2026-01-01-81726199",
+        "confidence": 0.4021,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.2777,
+        "prediction_drift": false,
+        "rule_id": "4",
+        "scenario": "S1",
+        "window_index": 0
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 4,
+        "card_id": "dc-2026-01-02-c65f5add",
+        "confidence": 0.4803,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.2713,
+        "prediction_drift": false,
+        "rule_id": "4",
+        "scenario": "S1",
+        "window_index": 1
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 4,
+        "card_id": "dc-2026-01-03-11a353c8",
+        "confidence": 0.5669,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.2998,
+        "prediction_drift": false,
+        "rule_id": "4",
+        "scenario": "S1",
+        "window_index": 2
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 4,
+        "card_id": "dc-2026-01-04-9d9a6d54",
+        "confidence": 0.5861,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.3272,
+        "prediction_drift": false,
+        "rule_id": "4",
+        "scenario": "S1",
+        "window_index": 3
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 4,
+        "card_id": "dc-2026-01-05-e41b6c55",
+        "confidence": 0.5885,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.3307,
+        "prediction_drift": false,
+        "rule_id": "4",
+        "scenario": "S1",
+        "window_index": 4
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 1,
+        "card_id": "dc-2026-01-01-f2b179f0",
+        "confidence": 0.4857,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.4086,
+        "prediction_drift": false,
+        "rule_id": "4",
+        "scenario": "S2",
+        "window_index": 0
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 3,
+        "card_id": "dc-2026-01-02-a0385da1",
+        "confidence": 0.5785,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.4231,
+        "prediction_drift": false,
+        "rule_id": "4",
+        "scenario": "S2",
+        "window_index": 1
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 3,
+        "card_id": "dc-2026-01-03-c5bccc9f",
+        "confidence": 0.6241,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.3931,
+        "prediction_drift": false,
+        "rule_id": "4",
+        "scenario": "S2",
+        "window_index": 2
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 3,
+        "card_id": "dc-2026-01-04-c7fe0d18",
+        "confidence": 0.6375,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.4121,
+        "prediction_drift": false,
+        "rule_id": "4",
+        "scenario": "S2",
+        "window_index": 3
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 3,
+        "card_id": "dc-2026-01-05-684cd07e",
+        "confidence": 0.6232,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.3917,
+        "prediction_drift": false,
+        "rule_id": "4",
+        "scenario": "S2",
+        "window_index": 4
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 2,
+        "card_id": "dc-2026-01-01-2c17cf15",
+        "confidence": 0.4679,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.3717,
+        "prediction_drift": true,
+        "rule_id": "4",
+        "scenario": "S3",
+        "window_index": 0
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 4,
+        "card_id": "dc-2026-01-02-b7712a95",
+        "confidence": 0.5692,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.3984,
+        "prediction_drift": true,
+        "rule_id": "4",
+        "scenario": "S3",
+        "window_index": 1
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 5,
+        "card_id": "dc-2026-01-03-ab8d5a8e",
+        "confidence": 0.6813,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.4519,
+        "prediction_drift": true,
+        "rule_id": "4",
+        "scenario": "S3",
+        "window_index": 2
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 6,
+        "card_id": "dc-2026-01-04-0f4260d5",
+        "confidence": 0.6161,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.3474,
+        "prediction_drift": true,
+        "rule_id": "4",
+        "scenario": "S3",
+        "window_index": 3
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 6,
+        "card_id": "dc-2026-01-05-93f30939",
+        "confidence": 0.6917,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.4553,
+        "prediction_drift": true,
+        "rule_id": "4",
+        "scenario": "S3",
+        "window_index": 4
+      },
+      {
+        "action": "NO_OP",
+        "breaching_features": 0,
+        "card_id": "dc-2026-01-01-1e5eb5aa",
+        "confidence": 0.1869,
+        "disposition": "NONE",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.0885,
+        "prediction_drift": false,
+        "rule_id": "1",
+        "scenario": "S4",
+        "window_index": 0
+      },
+      {
+        "action": "ALERT_ONLY",
+        "breaching_features": 2,
+        "card_id": "dc-2026-01-02-8628996c",
+        "confidence": 0.2971,
+        "disposition": "NONE",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.1278,
+        "prediction_drift": false,
+        "rule_id": "2",
+        "scenario": "S4",
+        "window_index": 1
+      },
+      {
+        "action": "INCREMENTAL_RETRAIN",
+        "breaching_features": 2,
+        "card_id": "dc-2026-01-03-7cbd8719",
+        "confidence": 0.3907,
+        "disposition": "AUTO_PROCEED_SHADOW",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.1663,
+        "prediction_drift": false,
+        "rule_id": "3",
+        "scenario": "S4",
+        "window_index": 2
+      },
+      {
+        "action": "INCREMENTAL_RETRAIN",
+        "breaching_features": 2,
+        "card_id": "dc-2026-01-04-8ba8cd93",
+        "confidence": 0.441,
+        "disposition": "AUTO_PROCEED_SHADOW",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.1428,
+        "prediction_drift": false,
+        "rule_id": "3",
+        "scenario": "S4",
+        "window_index": 3
+      },
+      {
+        "action": "INCREMENTAL_RETRAIN",
+        "breaching_features": 2,
+        "card_id": "dc-2026-01-05-7f4866a9",
+        "confidence": 0.4464,
+        "disposition": "AUTO_PROCEED_SHADOW",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.1506,
+        "prediction_drift": false,
+        "rule_id": "3",
+        "scenario": "S4",
+        "window_index": 4
+      },
+      {
+        "action": "NO_OP",
+        "breaching_features": 0,
+        "card_id": "dc-2026-01-01-551bf5ad",
+        "confidence": 0.1869,
+        "disposition": "NONE",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.0885,
+        "prediction_drift": false,
+        "rule_id": "1",
+        "scenario": "S5",
+        "window_index": 0
+      },
+      {
+        "action": "ALERT_ONLY",
+        "breaching_features": 2,
+        "card_id": "dc-2026-01-02-d3fa73d4",
+        "confidence": 0.2971,
+        "disposition": "NONE",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.1278,
+        "prediction_drift": false,
+        "rule_id": "2",
+        "scenario": "S5",
+        "window_index": 1
+      },
+      {
+        "action": "INCREMENTAL_RETRAIN",
+        "breaching_features": 2,
+        "card_id": "dc-2026-01-03-8f751568",
+        "confidence": 0.3907,
+        "disposition": "AUTO_PROCEED_SHADOW",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.1663,
+        "prediction_drift": false,
+        "rule_id": "3",
+        "scenario": "S5",
+        "window_index": 2
+      },
+      {
+        "action": "INCREMENTAL_RETRAIN",
+        "breaching_features": 2,
+        "card_id": "dc-2026-01-04-55524521",
+        "confidence": 0.441,
+        "disposition": "AUTO_PROCEED_SHADOW",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.1428,
+        "prediction_drift": false,
+        "rule_id": "3",
+        "scenario": "S5",
+        "window_index": 3
+      },
+      {
+        "action": "INCREMENTAL_RETRAIN",
+        "breaching_features": 2,
+        "card_id": "dc-2026-01-05-032eccdd",
+        "confidence": 0.4464,
+        "disposition": "AUTO_PROCEED_SHADOW",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.1506,
+        "prediction_drift": false,
+        "rule_id": "3",
+        "scenario": "S5",
+        "window_index": 4
+      }
+    ],
+    "policy-v2": [
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 2,
+        "card_id": "dc-2026-01-01-ed97c2de",
+        "confidence": 0.3941,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": "BLOCK",
+        "gate_bad_failed_checks": 37,
+        "gate_retrained": "PASS",
+        "gate_retrained_reasons": [],
+        "max_psi": 0.2777,
+        "prediction_drift": false,
+        "rule_id": "4",
+        "scenario": "S1",
+        "window_index": 0
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 4,
+        "card_id": "dc-2026-01-02-229c770d",
+        "confidence": 0.4563,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": "BLOCK",
+        "gate_bad_failed_checks": 36,
+        "gate_retrained": "PASS",
+        "gate_retrained_reasons": [],
+        "max_psi": 0.2713,
+        "prediction_drift": false,
+        "rule_id": "4",
+        "scenario": "S1",
+        "window_index": 1
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 4,
+        "card_id": "dc-2026-01-03-0789707a",
+        "confidence": 0.5429,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": "BLOCK",
+        "gate_bad_failed_checks": 37,
+        "gate_retrained": "PASS",
+        "gate_retrained_reasons": [],
+        "max_psi": 0.2998,
+        "prediction_drift": false,
+        "rule_id": "4",
+        "scenario": "S1",
+        "window_index": 2
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 4,
+        "card_id": "dc-2026-01-04-a79ba966",
+        "confidence": 0.5621,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": "BLOCK",
+        "gate_bad_failed_checks": 34,
+        "gate_retrained": "BLOCK",
+        "gate_retrained_reasons": [
+          "calibration_ece [recent_labeled_window]: ECE 0.050358 against the absolute ceiling 0.05"
+        ],
+        "max_psi": 0.3272,
+        "prediction_drift": false,
+        "rule_id": "4",
+        "scenario": "S1",
+        "window_index": 3
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 4,
+        "card_id": "dc-2026-01-05-284de45a",
+        "confidence": 0.5645,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": "BLOCK",
+        "gate_bad_failed_checks": 34,
+        "gate_retrained": "BLOCK",
+        "gate_retrained_reasons": [
+          "calibration_ece [recent_labeled_window]: ECE 0.060249 against the absolute ceiling 0.05"
+        ],
+        "max_psi": 0.3307,
+        "prediction_drift": false,
+        "rule_id": "4",
+        "scenario": "S1",
+        "window_index": 4
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 1,
+        "card_id": "dc-2026-01-01-acadf8f3",
+        "confidence": 0.4857,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": "BLOCK",
+        "gate_bad_failed_checks": 36,
+        "gate_retrained": "PASS",
+        "gate_retrained_reasons": [],
+        "max_psi": 0.4086,
+        "prediction_drift": false,
+        "rule_id": "4",
+        "scenario": "S2",
+        "window_index": 0
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 3,
+        "card_id": "dc-2026-01-02-7db599b1",
+        "confidence": 0.5625,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": "BLOCK",
+        "gate_bad_failed_checks": 38,
+        "gate_retrained": "PASS",
+        "gate_retrained_reasons": [],
+        "max_psi": 0.4231,
+        "prediction_drift": false,
+        "rule_id": "4",
+        "scenario": "S2",
+        "window_index": 1
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 3,
+        "card_id": "dc-2026-01-03-089cae13",
+        "confidence": 0.6081,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": "BLOCK",
+        "gate_bad_failed_checks": 36,
+        "gate_retrained": "PASS",
+        "gate_retrained_reasons": [],
+        "max_psi": 0.3931,
+        "prediction_drift": false,
+        "rule_id": "4",
+        "scenario": "S2",
+        "window_index": 2
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 3,
+        "card_id": "dc-2026-01-04-cd1daa71",
+        "confidence": 0.6215,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": "BLOCK",
+        "gate_bad_failed_checks": 34,
+        "gate_retrained": "PASS",
+        "gate_retrained_reasons": [],
+        "max_psi": 0.4121,
+        "prediction_drift": false,
+        "rule_id": "4",
+        "scenario": "S2",
+        "window_index": 3
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 3,
+        "card_id": "dc-2026-01-05-70d295a8",
+        "confidence": 0.6072,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": "BLOCK",
+        "gate_bad_failed_checks": 34,
+        "gate_retrained": "BLOCK",
+        "gate_retrained_reasons": [
+          "calibration_ece [recent_labeled_window]: ECE 0.059665 against the absolute ceiling 0.05"
+        ],
+        "max_psi": 0.3917,
+        "prediction_drift": false,
+        "rule_id": "4",
+        "scenario": "S2",
+        "window_index": 4
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 2,
+        "card_id": "dc-2026-01-01-29b4617f",
+        "confidence": 0.4599,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": "BLOCK",
+        "gate_bad_failed_checks": 35,
+        "gate_retrained": "PASS",
+        "gate_retrained_reasons": [],
+        "max_psi": 0.3717,
+        "prediction_drift": true,
+        "rule_id": "4",
+        "scenario": "S3",
+        "window_index": 0
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 4,
+        "card_id": "dc-2026-01-02-3d59186a",
+        "confidence": 0.5532,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": "BLOCK",
+        "gate_bad_failed_checks": 35,
+        "gate_retrained": "PASS",
+        "gate_retrained_reasons": [],
+        "max_psi": 0.3984,
+        "prediction_drift": true,
+        "rule_id": "4",
+        "scenario": "S3",
+        "window_index": 1
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 5,
+        "card_id": "dc-2026-01-03-2caa78cb",
+        "confidence": 0.6733,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": "BLOCK",
+        "gate_bad_failed_checks": 36,
+        "gate_retrained": "PASS",
+        "gate_retrained_reasons": [],
+        "max_psi": 0.4519,
+        "prediction_drift": true,
+        "rule_id": "4",
+        "scenario": "S3",
+        "window_index": 2
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 6,
+        "card_id": "dc-2026-01-04-18315bbf",
+        "confidence": 0.5921,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": "BLOCK",
+        "gate_bad_failed_checks": 28,
+        "gate_retrained": "PASS",
+        "gate_retrained_reasons": [],
+        "max_psi": 0.3474,
+        "prediction_drift": true,
+        "rule_id": "4",
+        "scenario": "S3",
+        "window_index": 3
+      },
+      {
+        "action": "FULL_RETRAIN",
+        "breaching_features": 6,
+        "card_id": "dc-2026-01-05-cc88909a",
+        "confidence": 0.6677,
+        "disposition": "ESCALATE_HUMAN",
+        "gate_bad": "BLOCK",
+        "gate_bad_failed_checks": 33,
+        "gate_retrained": "BLOCK",
+        "gate_retrained_reasons": [
+          "calibration_ece [recent_labeled_window]: ECE 0.064315 against the absolute ceiling 0.05"
+        ],
+        "max_psi": 0.4553,
+        "prediction_drift": true,
+        "rule_id": "4",
+        "scenario": "S3",
+        "window_index": 4
+      },
+      {
+        "action": "NO_OP",
+        "breaching_features": 0,
+        "card_id": "dc-2026-01-01-15473834",
+        "confidence": 0.1869,
+        "disposition": "NONE",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.0885,
+        "prediction_drift": false,
+        "rule_id": "1",
+        "scenario": "S4",
+        "window_index": 0
+      },
+      {
+        "action": "NO_OP",
+        "breaching_features": 2,
+        "card_id": "dc-2026-01-02-504d040f",
+        "confidence": 0.2144,
+        "disposition": "NONE",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.1278,
+        "prediction_drift": false,
+        "rule_id": "1",
+        "scenario": "S4",
+        "window_index": 1
+      },
+      {
+        "action": "NO_OP",
+        "breaching_features": 2,
+        "card_id": "dc-2026-01-03-774da4e5",
+        "confidence": 0.2414,
+        "disposition": "NONE",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.1663,
+        "prediction_drift": false,
+        "rule_id": "1",
+        "scenario": "S4",
+        "window_index": 2
+      },
+      {
+        "action": "NO_OP",
+        "breaching_features": 2,
+        "card_id": "dc-2026-01-04-588cb84b",
+        "confidence": 0.225,
+        "disposition": "NONE",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.1428,
+        "prediction_drift": false,
+        "rule_id": "1",
+        "scenario": "S4",
+        "window_index": 3
+      },
+      {
+        "action": "NO_OP",
+        "breaching_features": 2,
+        "card_id": "dc-2026-01-05-3a0ba11c",
+        "confidence": 0.2304,
+        "disposition": "NONE",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.1506,
+        "prediction_drift": false,
+        "rule_id": "1",
+        "scenario": "S4",
+        "window_index": 4
+      },
+      {
+        "action": "NO_OP",
+        "breaching_features": 0,
+        "card_id": "dc-2026-01-01-b8b8b7e8",
+        "confidence": 0.1869,
+        "disposition": "NONE",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.0885,
+        "prediction_drift": false,
+        "rule_id": "1",
+        "scenario": "S5",
+        "window_index": 0
+      },
+      {
+        "action": "NO_OP",
+        "breaching_features": 2,
+        "card_id": "dc-2026-01-02-1f54235a",
+        "confidence": 0.2144,
+        "disposition": "NONE",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.1278,
+        "prediction_drift": false,
+        "rule_id": "1",
+        "scenario": "S5",
+        "window_index": 1
+      },
+      {
+        "action": "NO_OP",
+        "breaching_features": 2,
+        "card_id": "dc-2026-01-03-d182d451",
+        "confidence": 0.2414,
+        "disposition": "NONE",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.1663,
+        "prediction_drift": false,
+        "rule_id": "1",
+        "scenario": "S5",
+        "window_index": 2
+      },
+      {
+        "action": "NO_OP",
+        "breaching_features": 2,
+        "card_id": "dc-2026-01-04-6b7c39dc",
+        "confidence": 0.225,
+        "disposition": "NONE",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.1428,
+        "prediction_drift": false,
+        "rule_id": "1",
+        "scenario": "S5",
+        "window_index": 3
+      },
+      {
+        "action": "NO_OP",
+        "breaching_features": 2,
+        "card_id": "dc-2026-01-05-e934e6f7",
+        "confidence": 0.2304,
+        "disposition": "NONE",
+        "gate_bad": null,
+        "gate_bad_failed_checks": null,
+        "gate_retrained": null,
+        "gate_retrained_reasons": [],
+        "max_psi": 0.1506,
+        "prediction_drift": false,
+        "rule_id": "1",
+        "scenario": "S5",
+        "window_index": 4
+      }
+    ]
+  }
+}

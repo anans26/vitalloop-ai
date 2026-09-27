@@ -1,7 +1,7 @@
 # Running the Project — VitalLoop 2.0
 
-> **Milestone covered by this document: Week 11 of the 12-week roadmap** (§19; Weeks 9–10 in §17–§18).
-> This document describes only what exists and runs in the repository today. For a fresh clone, the root `README.md` quickstart is the shortest path; this document is the detailed reference. Week 12 (report and release) is pending — see `PROJECT_REPOSITORY_GUIDE.md` §11.
+> **Milestone covered by this document: Week 12 — release `v1.0`** (§20; Week 11 in §19, Weeks 9–10 in §17–§18). Results and limitations: `docs/FINAL_REPORT.md`.
+> This document describes only what exists and runs in the repository today. For a fresh clone, the root `README.md` quickstart is the shortest path; this document is the detailed reference. The only roadmap deliverable not produced is the demo video — see `PROJECT_REPOSITORY_GUIDE.md` §11.
 
 ---
 
@@ -685,7 +685,7 @@ print('No patient leakage across splits: OK')
 - Week 11: the CI pipeline (ruff → pytest + 80% per-package coverage floor → synthetic-sample smoke train → gate check → image build), `scripts/seed_demo.py`, the archiving `scripts/reset_demo.py`, the root `README.md` quickstart rehearsed from a fresh clone, and the Overview *Demo state* panel (§19)
 - 1292/1292 pytest tests passing (Week 11: branch coverage 99% `loop/engine`, 99% `loop/gate`, 87% `api`, 85% `scripts/`; Week 10: 91% branch coverage over `dashboard/` + `loop/gate/` + `api/`, 98% on `dashboard/data.py`, 97% on `dashboard/audit_pdf.py`; Week 9: 97% branch coverage on `loop/approval/promotion.py`, 100% on `loop/approval/retrain.py`, `loop/shadow/stats.py`, `loop/narrate/narrator.py` and `ollama.py`) (99% branch coverage on the Decision Engine, 99% on `loop/gate/` and 100% on `ml/retrain.py`); `ruff check .` and `ruff format --check .` clean
 
-**In Progress:** nothing — Week 11 is a clean stopping point with no partially-built component.
+**In Progress:** nothing — `v1.0` (Week 12) is a clean stopping point with no partially-built component.
 
 **Open question carried into Week 4:** the Week 3 model scores ~0.60 ROC-AUC,
 below the ~0.64–0.69 range `project_docs/DATASET_ANALYSIS.md` cites for this
@@ -699,7 +699,7 @@ identical conditions. Whether to restate the roadmap's "at or above published
 benchmarks" outcome in light of the stricter protocol is a decision for review,
 not something Week 3 resolved by tuning.
 
-**Remaining (Week 12 — see `PROJECT_REPOSITORY_GUIDE.md` §11):** the final report, benchmark tables, demo video and the tagged release.
+**Remaining:** the demo video (script in `docs/FINAL_REPORT.md` Appendix B). Week 12 delivered the benchmark tables, the report and the local `v1.0` tag (§20).
 
 ---
 
@@ -1991,3 +1991,92 @@ pushed. The README badge will show the first real run.
   windows (the Week 6 behaviour §17.7 describes for scenarios). It affects
   only the quiet `live` stream, not the S1/S2 demo path, which the dashboard
   button measures exactly once per window.
+
+
+---
+
+## 20. Week 12 — Benchmark Tables, Report, Release
+
+### 20.1 What it does
+
+`IMPLEMENTATION_ROADMAP.md`, Week 12: *"final-year report (reuse
+PROJECT_DESIGN.md structure); results tables from the S1–S5 benchmark
+(detection latency, false-trigger rate, gate outcomes); demo video recording;
+viva Q&A drill …; freeze `v1.0` tag."* Deliverables: *"report draft, demo
+video, tagged release."*
+
+| Deliverable | Where | Status |
+|---|---|---|
+| Report draft | `docs/FINAL_REPORT.md` | done — measured results, limitations, the contribution-by-contribution evidence |
+| Benchmark tables | `scenarios/benchmark.py` → `reports/benchmark.json`, `reports/benchmark.md` (tracked) | done |
+| Viva Q&A drill | `docs/FINAL_REPORT.md` Appendix A — prepared answers to the five named questions | answers written; the drill itself is a rehearsal for people |
+| Demo video | `docs/FINAL_REPORT.md` Appendix B — the timed recording script | **not recorded** |
+| `v1.0` tag | local annotated tag on the Week 12 commit | done, **not pushed** |
+
+### 20.2 The benchmark
+
+```bash
+python -m scenarios.benchmark            # ~5 min: every window, both policies, the gate
+python -m scenarios.benchmark --no-gate  # decisions only
+```
+
+Every complete 2,000-row window (5 per scenario) is measured once with the
+monitor's `measure_window`, recorded and decided with the worker's own
+`record_window` → `evaluate_event` chain under `policy-v1` and `policy-v2`, in
+a throwaway SQLite database — nothing touches the live stack. For
+`policy-v2`'s retrain cards, one live retrain on the pinned data (the
+production `ml.retrain.train_challenger`; every card pins the same hash) and
+the deliberately bad challenger are gated per card with
+`loop.gate.runner.gate_challenger`, the card's pinned criteria and its own
+evaluation sets. Definitions (onset, detection latency, false-trigger rate)
+are in the module docstring.
+
+Measured on 2026-09-27 (5 min 1 s):
+
+| | policy-v1 | policy-v2 |
+|---|---|---|
+| S1–S3 detection latency | 0 windows | 0 windows |
+| S5 control false-trigger rate | **80%** (4/5) | **0%** (0/5) |
+| S4 label drift | "detected" at window 1 — by the control's administrative drift, not the label drift | not detected (by design: rule 5 needs matured labels) |
+| Retrained challenger at the gate | — | 11 PASS, 4 BLOCK (absolute ECE ceiling on late windows) |
+| Bad challenger at the gate | — | 15/15 BLOCK |
+
+Window-level rows, confidences and every BLOCK reason are in
+`reports/benchmark.md`. Two notes the report repeats: policy-v2's calibration
+used the control's windows 0–2, so those are in-sample (windows 3–4 are not,
+and also stayed quiet); and the four retrained BLOCKs are windows where the
+champion is equally miscalibrated — ECE is an absolute ceiling by design.
+
+A first run of the benchmark stopped at the gate stage on a bug in the new
+module (it read `scenario` from the card, which nests it under `trigger`); a
+unit test caught the same bug, and the tables above are from the fixed run.
+
+### 20.3 Verified
+
+- The benchmark's first windows reproduce §15.5's recorded confidences exactly
+  (S1 0.3941, S2 0.4857, S3 0.4599 under policy-v2).
+- `tests/test_benchmark_tables.py`: the metrics as pure functions, and the
+  decide/gate loop on injected measurements through the real engine.
+- Final end-to-end verification of the release is in §20.4.
+
+### 20.4 Release verification
+
+On 2026-09-27, before the `v1.0` commit:
+
+| Check | Result |
+|---|---|
+| `pytest` (full suite, data present) | **1299 passed, 0 failed, 0 skipped** (22 min 27 s) |
+| Branch coverage | `loop/engine` 99%, `loop/gate` 99%, `api` 87%, `scripts` 85%, `dashboard` 89%, `scenarios` 77% |
+| `ruff check .`, `ruff format --check .`, `pre-commit run --all-files` | clean |
+| `dvc status` | up to date |
+| `docker compose config` (default and `--profile ollama`) | valid; `ollama` only in the profile |
+| `reset_demo --yes` on the development stack | 2 min 23 s; the Week 11 demo run's rows archived and restore-verified; reseeded demo-ready |
+| The six-step demo through the real pages | **94.5 s**; clinician 403 on `/ops/*`; all six pages 1.4–1.7 s; replay PASS; champion v1 → v2 live; bad challenger BLOCK (37); PDF offered |
+| `restart api dashboard monitor` | API back on v2; dashboard and `/docs` 200 |
+| Audit chain by one SQL query | authorisation → replay PASS → promotion 1 → 2, approver `ops-demo` |
+| Secrets in the dashboard / monitor containers | none (JWT secret, API keys) |
+| PHI-pattern scan: every table, API logs, audit PDF, `reports/benchmark.*` | 0 hits |
+| Test runs appending to `mlflow/registry_audit.jsonl` | none (5 lines = seed + demo) |
+
+After the tag, the stack was reset once more so it is left in the seeded,
+demo-ready state.

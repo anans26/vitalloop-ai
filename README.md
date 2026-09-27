@@ -11,6 +11,9 @@ promotes it only when a person approves — leaving an audit trail for every ste
 > **Deterministic code decides. The LLM only narrates. A human approves anything
 > that touches clinicians.**
 
+**Release `v1.0`** (the Week 12 submission). Results, limitations and the
+measured benchmark: [`docs/FINAL_REPORT.md`](docs/FINAL_REPORT.md).
+
 **This is a research and education system, not a medical device.** Its scores
 are decision-support risk stratification on a public, de-identified 1999–2008
 dataset; they are not clinical advice.
@@ -121,6 +124,7 @@ grounding check, the template narrates instead and the card is unaffected.
 pytest -q                                  # the full suite; no services needed
 ruff check . && ruff format --check .
 python -m scripts.ci_smoke                 # CI's training smoke run + gate check
+python -m scenarios.benchmark              # S1-S5 results tables -> reports/benchmark.md (~5 min)
 ```
 
 CI (`.github/workflows/ci.yml`) runs ruff → pytest with an 80% branch-coverage
@@ -133,6 +137,8 @@ needs no database, MLflow server, Ollama or dataset.
 
 | Where | What |
 |---|---|
+| [`docs/FINAL_REPORT.md`](docs/FINAL_REPORT.md) | The final report: architecture as built, measured results, limitations, viva notes |
+| [`reports/benchmark.md`](reports/benchmark.md) | The S1–S5 benchmark tables (detection latency, false-trigger rate, gate outcomes) |
 | [`docs/RUNNING_THE_PROJECT.md`](docs/RUNNING_THE_PROJECT.md) | Everything that is built, how to run it, and what was verified, week by week |
 | [`docs/PROJECT_REPOSITORY_GUIDE.md`](docs/PROJECT_REPOSITORY_GUIDE.md) | The repository, file by file, and the project's status |
 | [`project_docs/`](project_docs/README.md) | The design: architecture, workflow, roadmap, risks, research contributions |

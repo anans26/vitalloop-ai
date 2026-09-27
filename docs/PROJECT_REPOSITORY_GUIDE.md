@@ -91,7 +91,8 @@ MLOPS PROJECT/
 │   ├── narrate/                     #   Week 9: grounding check, Jinja2 template, Ollama client
 │   ├── shadow/                      #   Week 9: shadow agreement statistics (pure function)
 │   └── approval/                    #   Week 9: retrain authorisation + promotion (moves champion)
-├── scenarios/                       # Seeded drift-injection scripts S1-S5 (the Week 6 benchmark)
+├── scenarios/                       # Seeded drift-injection scripts S1-S5 (the Week 6 benchmark);
+│                                   #   Week 12: benchmark.py regenerates the results tables
 ├── configs/                         # Versioned policies, gate criteria, promotion rules (policy-v*, gate-v*, promotion-v*)
 ├── scripts/                         # Operational helpers (dev JWT issuer, replay_retrain, send_traffic;
 │                                   #   Week 11: seed_demo, reset_demo, ci_smoke)
@@ -407,9 +408,9 @@ The five-plane target (data → model → serving → self-healing loop → obse
 | Shadow deployment, approval, LLM narration | ✅ Completed | `api/shadow.py` + `loop/shadow/` — post-response shadow scoring into `shadow_predictions` and agreement statistics; `loop/approval/` + `api/routers/ops.py` — ops-role retrain authorisation and promotion into `approvals`, the only path that moves `champion`; `loop/narrate/` — Jinja2 narrative (default + fallback), optional self-hosted Ollama, grounding check. See `RUNNING_THE_PROJECT.md` §17 |
 | Dashboard (Streamlit) + audit PDF | ✅ Completed | `dashboard/` — the six §3.14 pages (Overview, Drift Monitor, Decision Cards, Champion vs Challenger, Approvals, Audit) behind an API-verified ops token; the drift-injection button (S1/S2), retrain/replay/bad-challenger buttons and demo traffic; the fpdf2 per-card audit PDF. Decisions go through the API's `/ops` endpoints. See `RUNNING_THE_PROJECT.md` §18 |
 | CI/CD hardening | ✅ Completed | Week 11: the full ruff → pytest (+80% coverage floor on engine, gate, API) → smoke train → gate check → image build pipeline; the seed/reset scripts; the root README quickstart, rehearsed from a fresh clone. See `RUNNING_THE_PROJECT.md` §19 |
-| Report / viva prep | ⬜ Not started | 0% — Week 12 |
+| Report / viva prep | ✅ Completed except the demo video | Week 12: `docs/FINAL_REPORT.md` (report draft with measured results and viva notes), `scenarios/benchmark.py` → `reports/benchmark.{json,md}` (detection latency, false-trigger rate, gate outcomes), local tag `v1.0`. The demo video was **not recorded** — the report's Appendix B is its script |
 
-**Overall project completion: 11 of 12 weeks (~92%) by roadmap time — the full governed loop runs end to end and is clickable from the dashboard: inject drift → narrated card → human authorisation → retrain (live, replay, or the deliberately bad challenger) → gate → shadow → human approval → live promotion → audit PDF. Week 11 added the CI pipeline, the fresh-machine seed and the archiving reset. What is missing is the report and release (Week 12).**
+**Overall project completion: 12 of 12 weeks by roadmap time (the demo video excepted) — the full governed loop runs end to end and is clickable from the dashboard: inject drift → narrated card → human authorisation → retrain (live, replay, or the deliberately bad challenger) → gate → shadow → human approval → live promotion → audit PDF. Week 11 added the CI pipeline, the fresh-machine seed and the archiving reset; Week 12 the benchmark tables, the final report and the `v1.0` tag. Not done: the demo video.**
 
 ---
 
@@ -495,9 +496,9 @@ There is currently no request flow, no frontend-backend communication, and no AI
 
 ## 11. Pending Features — NOT IMPLEMENTED
 
-Everything below is described only because it is planned in `project_docs/IMPLEMENTATION_ROADMAP.md`. **None of it exists in the repository today.** (Weeks 3–11 — the model, calibration, SHAP, MLflow tracking and registry, the authenticated serving API with its Postgres audit trail, the Evidently drift monitor with the S1–S5 benchmark, the deterministic Decision Engine with its versioned policy and Decision Cards, the retrain pipeline with its validation gate, shadow scoring, the approval flow and grounded narration, the dashboard with its audit PDF, and the CI pipeline with the demo seed/reset — have since been implemented and are no longer listed.) It is listed here purely so a new developer knows what is coming and doesn't go looking for it.
+Everything below is described only because it is planned in `project_docs/IMPLEMENTATION_ROADMAP.md`. **None of it exists in the repository today.** (Weeks 3–12 — the model, calibration, SHAP, MLflow tracking and registry, the authenticated serving API with its Postgres audit trail, the Evidently drift monitor with the S1–S5 benchmark, the deterministic Decision Engine with its versioned policy and Decision Cards, the retrain pipeline with its validation gate, shadow scoring, the approval flow and grounded narration, the dashboard with its audit PDF, the CI pipeline with the demo seed/reset, and the report with its benchmark tables — have since been implemented and are no longer listed.) It is listed here purely so a new developer knows what is coming and doesn't go looking for it.
 
-- **Week 12 — NOT IMPLEMENTED:** final report, benchmark result tables, demo video, tagged release.
+- **Week 12 — NOT DONE:** the demo video recording (the script is `docs/FINAL_REPORT.md` Appendix B). The report, benchmark tables and the `v1.0` tag are done.
 
 If any other document (including AI-generated summaries) describes any of the above as done, that description is incorrect as of this repository's current state — treat this section as authoritative for "not yet built."
 
